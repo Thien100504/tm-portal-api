@@ -1,0 +1,19 @@
+[run]
+omit =
+    */tests/*
+    app/workers/*
+    app/celery_app.py
+    app/modules/websocket/*
+    app/modules/automation/actions.py
+    app/events/publisher.py
+    app/events/pipeline.py
+
+[report]
+omit =
+    */tests/*
+    app/workers/*
+    app/celery_app.py
+    app/modules/websocket/*
+    app/modules/automation/actions.py
+    app/events/publisher.py
+    app/events/pipeline.py
