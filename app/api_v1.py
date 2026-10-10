@@ -7,6 +7,12 @@ main.py only needs to include this router.
 
 from fastapi import APIRouter
 
+from app.modules.auth.router import router as auth_router
+from app.modules.users.router import router as users_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
+api_v1_router.include_router(
+    auth_router, prefix="/auth", tags=["auth"]
+)  # /api/v1/auth/...
+api_v1_router.include_router(users_router)  # /api/v1/users/...
