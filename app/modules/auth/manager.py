@@ -9,6 +9,11 @@ from app.modules.auth.schemas import UserCreate, UserUpdate
 from app.modules.auth.security import get_password_hash
 
 
+def escape_like(value: str) -> str:
+    """Escape LIKE/ILIKE wildcards so user input is matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class UserManager(BaseManager[User, UserCreate, UserUpdate]):
     async def get_by_email(self, db: AsyncSession, email: str) -> Optional[User]:
         """Get a User by email"""
@@ -35,8 +40,8 @@ class UserManager(BaseManager[User, UserCreate, UserUpdate]):
         stmt = (
             select(self.model)
             .where(
-                (self.model.email.ilike(f"%{query}%"))
-                | (self.model.full_name.ilike(f"%{query}%"))
+                (self.model.email.ilike(f"%{escape_like(query)}%", escape="\\"))
+                | (self.model.full_name.ilike(f"%{escape_like(query)}%", escape="\\"))
             )
             .limit(20)
         )
