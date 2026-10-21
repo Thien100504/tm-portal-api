@@ -59,8 +59,6 @@ class User(Base):
     avatar_url = Column(String(500), nullable=True)
     telegram_chat_id = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
-    failed_login_count = Column(String(10), default="0")
-    locked_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
