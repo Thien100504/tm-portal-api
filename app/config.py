@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     ]
 
     # --- Default admin (GAP-05) ---
-    ADMIN_EMAIL: str = "admin@taskmanager.local"
+    ADMIN_EMAIL: str = "admin@taskmanager.com"
     ADMIN_PASSWORD: str = "Admin@123456"
 
     # --- Logging ---
