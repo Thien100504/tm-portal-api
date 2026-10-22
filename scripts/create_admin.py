@@ -55,12 +55,10 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False, default="System Admin")
-    system_role = Column(String(50), nullable=False, default="admin")
+    system_role = Column("role", String(50), nullable=False, default="admin")
     avatar_url = Column(String(500), nullable=True)
     telegram_chat_id = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
-    failed_login_count = Column(String(10), default="0")
-    locked_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -136,7 +134,9 @@ def main() -> None:
     password = args.password or os.getenv("ADMIN_PASSWORD", "Admin@123456")
 
     if not email or not password:
-        print("Error: email and password must be provided via arguments or environment variables.")
+        print(
+            "Error: email and password must be provided via arguments or environment variables."
+        )
         sys.exit(1)
 
     print(f"Creating admin with email: {email}")

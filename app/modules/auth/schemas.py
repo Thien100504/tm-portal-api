@@ -2,7 +2,16 @@ import re
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+
+def check_password_strength(v: str) -> str:
+    """Shared password rules: at least one uppercase letter and one digit."""
+    if not re.search(r"[A-Z]", v):
+        raise ValueError("password.requires_uppercase")
+    if not re.search(r"\d", v):
+        raise ValueError("password.requires_number")
+    return v
 
 
 class UserCreate(BaseModel):
@@ -13,19 +22,31 @@ class UserCreate(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if not re.search(r"[A-Z]", v):
-            raise ValueError("password.requires_uppercase")
-        if not re.search(r"\d", v):
-            raise ValueError("password.requires_number")
-        return v
+        return check_password_strength(v)
 
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    password: Optional[str] = None
+    """Fields a user may change on their own profile (activation is admin-only)."""
+
+    full_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    password: Optional[str] = Field(None, min_length=8)
     avatar_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
-    is_active: Optional[bool] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+        # Only runs when the field is sent; an explicit null is not a valid password
+        if v is None:
+            raise ValueError("password.required")
+        return check_password_strength(v)
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            raise ValueError("user.full_name_required")
+        return v
 
 
 class UserLogin(BaseModel):
@@ -35,6 +56,10 @@ class UserLogin(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
@@ -53,5 +78,4 @@ class UserResponse(BaseModel):
     telegram_chat_id: Optional[str] = None
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

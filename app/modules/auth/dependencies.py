@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 from uuid import UUID
 
@@ -14,6 +15,76 @@ from app.modules.auth.security import decode_token
 
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# Same scheme, but a missing Authorization header is not an error (used by logout)
+optional_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login", auto_error=False
+)
+
+BLACKLIST_PREFIX = "token_blacklist:"
+
+
+def _remaining_ttl(payload: dict) -> int:
+    """Seconds until the token expires (jose encodes exp as a UTC timestamp)."""
+    return max(int(payload.get("exp", 0) - time.time()), 0)
+
+
+async def _close(r) -> None:
+    try:
+        await r.aclose()
+    except Exception:
+        pass
+
+
+async def is_token_blacklisted(token: str) -> bool:
+    """Check the Redis blacklist. Fails open (returns False) if Redis is down."""
+    r = None
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        return bool(await r.get(f"{BLACKLIST_PREFIX}{token}"))
+    except Exception:
+        logger.warning("Redis unavailable: token blacklist check skipped")
+        return False
+    finally:
+        if r is not None:
+            await _close(r)
+
+
+async def blacklist_token(token: str, payload: dict) -> None:
+    """Blacklist a token until it expires. Logs a warning if Redis is down."""
+    ttl = _remaining_ttl(payload)
+    if ttl <= 0:
+        return
+    r = None
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        await r.setex(f"{BLACKLIST_PREFIX}{token}", ttl, "1")
+    except Exception:
+        logger.warning("Redis unavailable: token could not be blacklisted")
+    finally:
+        if r is not None:
+            await _close(r)
+
+
+async def revoke_once(token: str, payload: dict) -> bool:
+    """
+    Atomically blacklist a one-time token (SET NX EX).
+
+    Returns False if the token was already revoked, so two concurrent requests
+    with the same refresh token cannot both succeed. Fails open if Redis is down.
+    """
+    ttl = _remaining_ttl(payload)
+    if ttl <= 0:
+        return False
+    r = None
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        return bool(await r.set(f"{BLACKLIST_PREFIX}{token}", "1", nx=True, ex=ttl))
+    except Exception:
+        logger.warning("Redis unavailable: refresh token rotation is not enforced")
+        return True
+    finally:
+        if r is not None:
+            await _close(r)
 
 
 async def get_current_user(
@@ -39,17 +110,8 @@ async def get_current_user(
         )
 
     # Check Redis blacklist (fail-open if Redis is down)
-    try:
-        settings = get_settings()
-        r = aioredis.from_url(settings.REDIS_URL)
-        is_blacklisted = await r.get(f"token_blacklist:{token}")
-        await r.aclose()
-        if is_blacklisted:
-            raise credentials_exception
-    except HTTPException:
-        raise
-    except Exception:
-        logger.debug("Redis blacklist check skipped (connection unavailable)")
+    if await is_token_blacklisted(token):
+        raise credentials_exception
 
     user_id_str: Optional[str] = payload.get("sub")
     if user_id_str is None:
@@ -103,6 +165,10 @@ async def get_current_user_from_token(token: str, db: AsyncSession) -> User:
         raise credentials_exception
 
     if payload.get("type") != "access":
+        raise credentials_exception
+
+    # A logged-out (blacklisted) token must not open a WebSocket either
+    if await is_token_blacklisted(token):
         raise credentials_exception
 
     user_id_str: Optional[str] = payload.get("sub")

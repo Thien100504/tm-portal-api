@@ -1,6 +1,5 @@
-from datetime import datetime
+from typing import Optional
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +9,11 @@ from app.database import get_db
 from app.models.user import User
 from app.modules.auth import schemas, security
 from app.modules.auth.manager import user_manager
-from app.modules.auth.dependencies import oauth2_scheme
+from app.modules.auth.dependencies import (
+    blacklist_token,
+    optional_oauth2_scheme,
+    revoke_once,
+)
 
 router = APIRouter()
 settings = get_settings()
@@ -109,31 +112,36 @@ async def refresh_token(
             detail="auth.user_inactive",
         )
 
+    # Token rotation: a refresh token works once. Revoking it is atomic, so two
+    # concurrent requests with the same token cannot both get new tokens.
+    if not await revoke_once(request.refresh_token, payload):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="auth.invalid_token",
+        )
     return {
         "access_token": security.create_access_token(user.id),
-        "refresh_token": security.create_refresh_token(
-            user.id
-        ),  # Always issue a new refresh token (Token Rotation)
+        "refresh_token": security.create_refresh_token(user.id),
         "token_type": "bearer",
         "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     }
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(token: str = Depends(oauth2_scheme)):
+async def logout(
+    body: Optional[schemas.LogoutRequest] = None,
+    token: Optional[str] = Depends(optional_oauth2_scheme),
+):
     """
-    Log out — blacklist the current access token in Redis.
-    The token will be rejected until it expires naturally.
+    Log out — blacklist the current access token (if sent) and the refresh token
+    (if sent in the body). Blacklisted tokens are rejected until they expire.
     """
-    payload = security.decode_token(token)
-    if payload:
-        exp = payload.get("exp", 0)
-        ttl = max(int(exp - datetime.utcnow().timestamp()), 0)
-        if ttl > 0:
-            try:
-                r = aioredis.from_url(settings.REDIS_URL)
-                await r.setex(f"token_blacklist:{token}", ttl, "1")
-                await r.aclose()
-            except Exception:
-                pass
+    if token:
+        payload = security.decode_token(token)
+        if payload:
+            await blacklist_token(token, payload)
+    if body and body.refresh_token:
+        refresh_payload = security.decode_token(body.refresh_token)
+        if refresh_payload.get("type") == "refresh":
+            await blacklist_token(body.refresh_token, refresh_payload)
     return {"detail": "auth.logged_out"}
