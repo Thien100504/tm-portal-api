@@ -11,6 +11,7 @@ import pytest
 def _make_user(**kw):
     u = MagicMock()
     u.id = kw.get("id", uuid.uuid4())
+    u.system_role = kw.get("system_role", "user")
     return u
 
 
@@ -35,7 +36,7 @@ async def test_update_role_operational_error():
 
     with pytest.raises(HTTPException) as exc:
         await rbac_manager.update_role(
-            db, uuid.uuid4(), RoleUpdate(name="New"), _make_user()
+            db, uuid.uuid4(), RoleUpdate(name="New"), _make_user(system_role="admin")
         )
     assert exc.value.status_code == 503
 
@@ -57,7 +58,7 @@ async def test_update_role_unhandled_exception():
 
     with pytest.raises(RuntimeError):
         await rbac_manager.update_role(
-            db, uuid.uuid4(), RoleUpdate(name="New"), _make_user()
+            db, uuid.uuid4(), RoleUpdate(name="New"), _make_user(system_role="admin")
         )
 
 
@@ -92,7 +93,7 @@ async def test_update_role_permissions_operational_error():
             db,
             uuid.uuid4(),
             RoleUpdatePermissions(permission_ids=[perm_id]),
-            _make_user(),
+            _make_user(system_role="admin"),
         )
     assert exc.value.status_code == 503
 
@@ -124,7 +125,7 @@ async def test_update_role_permissions_unhandled_exception():
             db,
             uuid.uuid4(),
             RoleUpdatePermissions(permission_ids=[perm_id]),
-            _make_user(),
+            _make_user(system_role="admin"),
         )
 
 
@@ -145,7 +146,9 @@ async def test_delete_role_unhandled_exception():
     db.rollback = AsyncMock()
 
     with pytest.raises(RuntimeError):
-        await rbac_manager.delete_role(db, uuid.uuid4(), _make_user())
+        await rbac_manager.delete_role(
+            db, uuid.uuid4(), _make_user(system_role="admin")
+        )
 
 
 # ─── SprintManager: complete_sprint edge cases ───────────────────────────────
