@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _BASE = settings.NOTIFICATION_SERVICE_URL
+# Shared secret checked by the notification service (empty in local development)
+_HEADERS = (
+    {"X-Internal-Token": settings.INTERNAL_API_TOKEN}
+    if settings.INTERNAL_API_TOKEN
+    else {}
+)
 
 
 # ── Query helpers (proxy to notification service HTTP API) ─────────
@@ -39,7 +45,7 @@ async def get_for_user(
     offset: int = 0,
 ) -> list[dict]:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_HEADERS) as client:
             resp = await client.get(
                 f"{_BASE}/notifications",
                 params={"user_id": str(user_id), "limit": limit, "offset": offset},
@@ -53,7 +59,7 @@ async def get_for_user(
 
 async def get_unread_count(db, user_id: uuid.UUID) -> int:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_HEADERS) as client:
             resp = await client.get(
                 f"{_BASE}/notifications/unread-count",
                 params={"user_id": str(user_id)},
@@ -67,12 +73,15 @@ async def get_unread_count(db, user_id: uuid.UUID) -> int:
 
 async def mark_read(db, notif_id: uuid.UUID, user_id: uuid.UUID) -> bool:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_HEADERS) as client:
             resp = await client.patch(
                 f"{_BASE}/notifications/{notif_id}/read",
                 params={"user_id": str(user_id)},
             )
-            return resp.status_code == 200
+            if resp.status_code == 404:
+                return False
+            resp.raise_for_status()  # other errors are reported as 503 below
+            return True
     except Exception as exc:
         logger.warning("Notification service mark_read failed: %s", exc)
         raise HTTPException(status_code=503, detail="server.notification_unavailable")
@@ -80,7 +89,7 @@ async def mark_read(db, notif_id: uuid.UUID, user_id: uuid.UUID) -> bool:
 
 async def mark_all_read(db, user_id: uuid.UUID) -> int:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_HEADERS) as client:
             resp = await client.patch(
                 f"{_BASE}/notifications/read-all",
                 params={"user_id": str(user_id)},
@@ -137,7 +146,8 @@ async def create_and_push(
 ) -> dict:
     """
     Publish notification to RabbitMQ for the notification worker to persist.
-    Also push to Redis for immediate WebSocket delivery.
+    The worker stores it and pushes it to Redis for WebSocket delivery
+    (pushing here as well delivered every notification twice).
 
     Prefer title_key/message_key (i18n dot-notation) over raw title/message strings.
     FE renders via t(title_key, title_params) with fallback to title.
@@ -163,19 +173,5 @@ async def create_and_push(
     from fastapi.concurrency import run_in_threadpool
 
     await run_in_threadpool(_publish_notification_sync, payload)
-
-    await push_via_redis(
-        {
-            "event": event_type,
-            "title": title,
-            "title_key": title_key,
-            "title_params": title_params,
-            "message": message,
-            "message_key": message_key,
-            "message_params": message_params,
-            "type": type,
-            "user_id": str(user_id),
-        }
-    )
 
     return payload

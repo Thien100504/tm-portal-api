@@ -132,7 +132,10 @@ class NotificationHandler(EventHandler):
     async def handle(self, ctx: EventContext) -> None:
         project_id = ctx.task.project_id
         result = await ctx.db.execute(
-            select(ProjectMember.user_id).where(ProjectMember.project_id == project_id)
+            select(ProjectMember.user_id).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.is_deleted.is_(False),
+            )
         )
         member_ids = {row[0] for row in result.all()}
         member_ids.discard(ctx.actor.id)
@@ -141,6 +144,7 @@ class NotificationHandler(EventHandler):
             await notif_svc.create_and_push(
                 ctx.db,
                 user_id=user_id,
+                event_type=ctx.event_type,  # distinct dedup keys per sprint event
                 title_key=ctx.meta.get("title_key"),
                 title_params=ctx.meta.get("title_params"),
                 message_key=ctx.meta.get("message_key"),

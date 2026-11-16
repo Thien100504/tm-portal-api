@@ -62,6 +62,8 @@ class Settings(BaseSettings):
 
     # --- Notification Service (microservice) ---
     NOTIFICATION_SERVICE_URL: str = "http://localhost:8002"
+    # Shared secret sent to worker.notify in X-Internal-Token (must match its value)
+    INTERNAL_API_TOKEN: str = ""
 
     # --- Telegram Bot ---
     TELEGRAM_BOT_TOKEN: str = ""

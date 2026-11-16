@@ -77,6 +77,7 @@ class NotificationHandler(EventHandler):
         await notif_svc.create_and_push(
             ctx.db,
             user_id=target_user_id,
+            event_type=ctx.event_type,  # distinct dedup keys for added/removed
             title_key=meta["title_key"],
             title_params=meta["title_params"],
             message_key=meta["message_key"],
