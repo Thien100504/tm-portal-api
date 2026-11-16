@@ -215,6 +215,7 @@ async def test_update_role_permissions_success():
     db.execute = AsyncMock(side_effect=exec_side)
     user = MagicMock()
     user.id = uuid.uuid4()
+    user.system_role = "admin"  # global roles: system admins only
 
     await rbac_manager.update_role_permissions(
         db, uuid.uuid4(), RoleUpdatePermissions(permission_ids=[perm_id]), user
