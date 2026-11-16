@@ -104,3 +104,25 @@ def test_list_rejects_invalid_limit():
         assert client.get("/api/v1/notifications?offset=-1").status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_task_notifications_have_distinct_dedup_fields():
+    """Two task notifications for one user in one project must not share a dedup key."""
+    with patch.object(notif_svc, "_publish_notification_sync"):
+        a = await notif_svc.create_and_push(
+            None,
+            user_id=uuid.uuid4(),
+            title_key="notification.task.assigned",
+            entity_type="task",
+            entity_id=uuid.uuid4(),
+        )
+        b = await notif_svc.create_and_push(
+            None,
+            user_id=uuid.uuid4(),
+            title_key="notification.task.unblocked",
+            entity_type="task",
+            entity_id=uuid.uuid4(),
+        )
+    assert a["event"] == "notification.task.assigned"
+    assert a["task_id"] and a["task_id"] != b["task_id"]

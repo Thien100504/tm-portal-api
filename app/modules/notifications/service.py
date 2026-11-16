@@ -153,7 +153,9 @@ async def create_and_push(
     FE renders via t(title_key, title_params) with fallback to title.
     """
     payload = {
-        "event": event_type or "notification.direct",
+        # The worker dedups on event + user + task/project: use the most specific
+        # event name so different notifications for one user are not dropped
+        "event": event_type or title_key or "notification.direct",
         "user_id": str(user_id),
         "title": title,
         "title_key": title_key,
@@ -165,6 +167,7 @@ async def create_and_push(
         "entity_type": entity_type,
         "entity_id": str(entity_id) if entity_id else None,
         "project_id": str(project_id) if project_id else None,
+        "task_id": str(entity_id) if entity_id and entity_type == "task" else None,
         "channels": ["inapp"],
     }
     if event_data:
