@@ -215,6 +215,7 @@ async def test_rbac_create_role_no_workspace():
     db = AsyncMock()
     user = MagicMock()
     user.id = uuid.uuid4()
+    user.system_role = "admin"  # global roles: system admins only
 
     db.add = MagicMock()
     db.commit = AsyncMock()
@@ -243,6 +244,7 @@ async def test_rbac_create_role_integrity_error():
     db = AsyncMock()
     user = MagicMock()
     user.id = uuid.uuid4()
+    user.system_role = "admin"  # global roles: system admins only
     db.add = MagicMock()
     db.commit = AsyncMock(side_effect=IntegrityError("dup", None, None))
     db.rollback = AsyncMock()
@@ -263,6 +265,7 @@ async def test_rbac_create_role_operational_error():
     db = AsyncMock()
     user = MagicMock()
     user.id = uuid.uuid4()
+    user.system_role = "admin"  # global roles: system admins only
     db.add = MagicMock()
     db.commit = AsyncMock(side_effect=OperationalError("db down", None, None))
     db.rollback = AsyncMock()
@@ -332,6 +335,7 @@ async def test_rbac_update_role_success():
 
     user = MagicMock()
     user.id = uuid.uuid4()
+    user.system_role = "admin"  # global roles: system admins only
 
     await rbac_manager.update_role(db, uuid.uuid4(), RoleUpdate(name="New Name"), user)
     assert mock_role.name == "New Name"
@@ -383,6 +387,7 @@ async def test_rbac_delete_role_success():
     db.commit = AsyncMock()
     user = MagicMock()
     user.id = uuid.uuid4()
+    user.system_role = "admin"  # global roles: system admins only
 
     await rbac_manager.delete_role(db, uuid.uuid4(), user)
     assert mock_role.is_deleted is True
