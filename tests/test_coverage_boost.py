@@ -516,7 +516,7 @@ async def test_update_role_integrity_error():
 
     with pytest.raises(HTTPException) as exc:
         await rbac_manager.update_role(
-            db, uuid.uuid4(), RoleUpdate(name="New"), _make_user()
+            db, uuid.uuid4(), RoleUpdate(name="New"), _make_user(system_role="admin")
         )
     assert exc.value.status_code == 409
 
@@ -538,7 +538,10 @@ async def test_update_role_with_description():
     db.execute.return_value = _scalars_result(first=mock_role)
 
     await rbac_manager.update_role(
-        db, uuid.uuid4(), RoleUpdate(name="Dev", description="new desc"), _make_user()
+        db,
+        uuid.uuid4(),
+        RoleUpdate(name="Dev", description="new desc"),
+        _make_user(system_role="admin"),
     )
     assert mock_role.description == "new desc"
 
@@ -642,7 +645,7 @@ async def test_update_role_permissions_invalid_perm_ids():
             db,
             uuid.uuid4(),
             RoleUpdatePermissions(permission_ids=[uuid.uuid4(), uuid.uuid4()]),
-            _make_user(),
+            _make_user(system_role="admin"),
         )
     assert exc.value.status_code == 400
 
@@ -674,7 +677,7 @@ async def test_update_role_permissions_integrity_error():
             db,
             uuid.uuid4(),
             RoleUpdatePermissions(permission_ids=[uuid.uuid4()]),
-            _make_user(),
+            _make_user(system_role="admin"),
         )
     assert exc.value.status_code == 409
 
@@ -737,7 +740,9 @@ async def test_delete_role_integrity_error():
     db.rollback = AsyncMock()
 
     with pytest.raises(HTTPException) as exc:
-        await rbac_manager.delete_role(db, uuid.uuid4(), _make_user())
+        await rbac_manager.delete_role(
+            db, uuid.uuid4(), _make_user(system_role="admin")
+        )
     assert exc.value.status_code == 409
 
 
@@ -756,7 +761,9 @@ async def test_delete_role_operational_error():
     db.rollback = AsyncMock()
 
     with pytest.raises(HTTPException) as exc:
-        await rbac_manager.delete_role(db, uuid.uuid4(), _make_user())
+        await rbac_manager.delete_role(
+            db, uuid.uuid4(), _make_user(system_role="admin")
+        )
     assert exc.value.status_code == 503
 
 
