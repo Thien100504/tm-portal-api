@@ -1,5 +1,5 @@
 """
-Last push — need just 1+ statement to cross 80%.
+Error-path tests for RBACManager.create_role (database errors).
 """
 
 import uuid
