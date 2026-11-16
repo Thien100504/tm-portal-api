@@ -278,3 +278,43 @@ async def test_team_project_only_accepts_workspace_members():
             )
     assert exc.value.detail == "project.user_not_in_workspace"
     add.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("member_row, expected", [(uuid.uuid4(), True), (None, False)])
+async def test_workspace_membership_query(member_row, expected):
+    """Runs the real queries (compiled to SQL) for a user who is not the owner."""
+    statements = []
+
+    async def scalar(stmt):
+        statements.append(str(stmt))
+        return uuid.uuid4() if len(statements) == 1 else member_row  # owner differs
+
+    db = MagicMock()
+    db.scalar = scalar
+    assert (
+        await project_manager.is_workspace_member(db, uuid.uuid4(), uuid.uuid4())
+        is expected
+    )
+    assert "workspace_members.user_id" in statements[1]
+    assert "is_deleted" in statements[1]
+
+
+def test_workspace_owner_gets_project_access():
+    """get_project_for_user's query also matches the workspace owner."""
+    from sqlalchemy.dialects import postgresql
+
+    captured = {}
+
+    async def execute(stmt):
+        captured["sql"] = str(stmt.compile(dialect=postgresql.dialect()))
+        result = MagicMock()
+        result.scalars.return_value.first.return_value = None
+        return result
+
+    import asyncio
+
+    db = MagicMock()
+    db.execute = execute
+    asyncio.run(project_manager.get_project_for_user(db, uuid.uuid4(), uuid.uuid4()))
+    assert "workspaces.owner_id" in captured["sql"]

@@ -40,11 +40,13 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
                     WorkspaceMember.is_deleted.is_(False),
                 ),
             )
+            .outerjoin(Workspace, Project.workspace_id == Workspace.id)
             .where(
                 Project.is_deleted.is_(False),
                 (Project.owner_id == user_id)
                 | (ProjectMember.user_id == user_id)
-                | (WorkspaceMember.user_id == user_id),
+                | (WorkspaceMember.user_id == user_id)
+                | (Workspace.owner_id == user_id),
             )
             .distinct()
         )
@@ -113,6 +115,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
                     WorkspaceMember.is_deleted.is_(False),
                 ),
             )
+            .outerjoin(Workspace, Project.workspace_id == Workspace.id)
             .where(
                 Project.id == project_id,
                 Project.is_deleted.is_(False),
@@ -120,6 +123,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
                     (Project.owner_id == user_id)
                     | (ProjectMember.user_id == user_id)
                     | (WorkspaceMember.user_id == user_id)
+                    | (Workspace.owner_id == user_id)
                 ),
             )
             .distinct()
@@ -147,7 +151,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         if owner_id == user_id:
             return True
         member = await db.scalar(
-            select(WorkspaceMember.id).where(
+            select(WorkspaceMember.user_id).where(
                 WorkspaceMember.workspace_id == workspace_id,
                 WorkspaceMember.user_id == user_id,
                 WorkspaceMember.is_deleted.is_(False),
