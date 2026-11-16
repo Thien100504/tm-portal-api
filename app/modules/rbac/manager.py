@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 logger = logging.getLogger(__name__)
 from typing import Optional, Set, List
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +51,7 @@ class RBACManager:
                 .where(
                     ProjectMember.user_id == user_id,
                     ProjectMember.project_id == project_id,
+                    ProjectMember.is_deleted.is_(False),
                 )
                 .options(
                     selectinload(ProjectMember.role).selectinload(Role.permissions)
@@ -65,6 +66,30 @@ class RBACManager:
 
         return permissions
 
+    async def resolve_workspace(
+        self,
+        db: AsyncSession,
+        workspace_id: Optional[uuid.UUID] = None,
+        project_id: Optional[uuid.UUID] = None,
+    ) -> Optional[uuid.UUID]:
+        """
+        Workspace that a permission check applies to.
+
+        With a project, the workspace is always the project's own; a different
+        workspace_id sent by the client is rejected (returns None), so admin
+        rights in one workspace cannot be used on a project of another.
+        """
+        if project_id:
+            ws_id = await db.scalar(
+                select(Project.workspace_id).where(
+                    Project.id == project_id, Project.is_deleted.is_(False)
+                )
+            )
+            if not ws_id or (workspace_id and workspace_id != ws_id):
+                return None
+            return ws_id
+        return workspace_id
+
     async def check_permission(
         self,
         db: AsyncSession,
@@ -73,13 +98,7 @@ class RBACManager:
         workspace_id: Optional[uuid.UUID] = None,
         project_id: Optional[uuid.UUID] = None,
     ) -> bool:
-        if not workspace_id and project_id:
-            prj_stmt = select(Project.workspace_id).where(Project.id == project_id)
-            ws_id = await db.scalar(prj_stmt)
-            if not ws_id:
-                return False
-            workspace_id = ws_id
-
+        workspace_id = await self.resolve_workspace(db, workspace_id, project_id)
         if not workspace_id:
             return False
 
@@ -96,6 +115,21 @@ class RBACManager:
         return await self.check_permission(
             db, user_id, "workspace.admin", workspace_id=workspace_id
         )
+
+    async def _require_role_admin(
+        self, db: AsyncSession, user: User, workspace_id: Optional[uuid.UUID]
+    ) -> None:
+        """Workspace roles need workspace admin rights; global roles need a system admin."""
+        if workspace_id:
+            allowed = await self._check_workspace_admin_access(
+                db, user.id, workspace_id
+            )
+        else:
+            allowed = getattr(user, "system_role", None) == "admin"
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="rbac.admin_required"
+            )
 
     async def get_roles(
         self, db: AsyncSession, scope: str, workspace_id: Optional[uuid.UUID] = None
@@ -120,14 +154,7 @@ class RBACManager:
     async def create_role(
         self, db: AsyncSession, role_in: RoleCreate, current_user: User
     ) -> Role | None:
-        if role_in.workspace_id:
-            has_access = await self._check_workspace_admin_access(
-                db, current_user.id, role_in.workspace_id
-            )
-            if not has_access:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="rbac.admin_required"
-                )
+        await self._require_role_admin(db, current_user, role_in.workspace_id)
 
         db_role = Role(
             name=role_in.name,
@@ -181,14 +208,7 @@ class RBACManager:
                 detail="rbac.cannot_modify_system_role",
             )
 
-        if role.workspace_id:
-            has_access = await self._check_workspace_admin_access(
-                db, current_user.id, role.workspace_id
-            )
-            if not has_access:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="rbac.admin_required"
-                )
+        await self._require_role_admin(db, current_user, role.workspace_id)
 
         if role_in.name is not None:
             role.name = role_in.name
@@ -239,14 +259,7 @@ class RBACManager:
                 detail="rbac.cannot_modify_system_role",
             )
 
-        if role.workspace_id:
-            has_access = await self._check_workspace_admin_access(
-                db, current_user.id, role.workspace_id
-            )
-            if not has_access:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="rbac.admin_required"
-                )
+        await self._require_role_admin(db, current_user, role.workspace_id)
 
         # Validate permissions
         stmt = select(Permission).where(Permission.id.in_(perms_in.permission_ids))
@@ -297,17 +310,10 @@ class RBACManager:
                 detail="rbac.cannot_delete_system_role",
             )
 
-        if role.workspace_id:
-            has_access = await self._check_workspace_admin_access(
-                db, current_user.id, role.workspace_id
-            )
-            if not has_access:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="rbac.admin_required"
-                )
+        await self._require_role_admin(db, current_user, role.workspace_id)
 
         role.is_deleted = True
-        role.deleted_at = datetime.utcnow()
+        role.deleted_at = datetime.now(timezone.utc)
         try:
             await db.commit()
         except IntegrityError as e:

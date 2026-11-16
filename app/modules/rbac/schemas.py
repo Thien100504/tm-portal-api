@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -19,7 +19,7 @@ class RoleBase(BaseModel):
 
 
 class RoleCreate(RoleBase):
-    scope: str = Field(default="project")
+    scope: Literal["workspace", "project"] = "project"
     workspace_id: Optional[uuid.UUID] = None
 
 

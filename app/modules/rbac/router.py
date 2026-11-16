@@ -95,14 +95,8 @@ async def get_my_permissions(
     current_user: User = Depends(get_current_active_user),
 ):
     """List the permission codes of the current user in a project/workspace."""
-    from app.models.project import Project
-
-    if not workspace_id and project_id:
-        ws_id = await db.scalar(
-            select(Project.workspace_id).where(Project.id == project_id)
-        )
-        workspace_id = ws_id
-
+    # With a project, the workspace is always the project's own (see resolve_workspace)
+    workspace_id = await rbac_manager.resolve_workspace(db, workspace_id, project_id)
     if not workspace_id:
         return []
 
