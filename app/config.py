@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     ]
 
     # --- Default admin (GAP-05) ---
-    ADMIN_EMAIL: str = "admin@taskmanager.local"
+    ADMIN_EMAIL: str = "admin@taskmanager.com"
     ADMIN_PASSWORD: str = "Admin@123456"
 
     # --- Logging ---
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     LOG_JSON: bool = True
 
     # --- Notification Service (microservice) ---
-    NOTIFICATION_SERVICE_URL: str = "http://localhost:8001"
+    NOTIFICATION_SERVICE_URL: str = "http://localhost:8002"
 
     # --- Telegram Bot ---
     TELEGRAM_BOT_TOKEN: str = ""
