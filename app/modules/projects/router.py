@@ -2,17 +2,17 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.events.project_events import project_events
 from app.models.user import User
-from app.models.workspace import WorkspaceMember
+from app.models.workspace import Workspace
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.manager import user_manager
 from app.modules.projects.dependencies import get_project_access, get_project_pm_access
 from app.modules.projects.manager import project_manager
+from app.modules.rbac.manager import rbac_manager
 from app.modules.projects.schemas import (
     ProjectCreate,
     ProjectMemberCreate,
@@ -43,7 +43,11 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create a project."""
+    """Create a project (in a workspace the user belongs to, or their personal one)."""
+    if project_in.workspace_id and not await project_manager.is_workspace_member(
+        db, project_in.workspace_id, current_user.id
+    ):
+        raise HTTPException(status_code=403, detail="project.workspace_forbidden")
     return await project_manager.create_project_with_owner(
         db, project_in, current_user.id
     )
@@ -78,22 +82,20 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Delete a project. Owner only."""
-    project = await project_manager.get(db, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="project.not_found")
+    """Delete (soft) a project. The owner or a workspace admin only."""
+    project = await get_project_access(project_id, db, current_user)
 
     if project.owner_id != current_user.id:
-        ws_mem = await db.scalar(
-            select(WorkspaceMember).where(
-                WorkspaceMember.workspace_id == project.workspace_id,
-                WorkspaceMember.user_id == current_user.id,
+        is_admin = (
+            project.workspace_id
+            and await rbac_manager._check_workspace_admin_access(
+                db, current_user.id, project.workspace_id
             )
         )
-        if not ws_mem:
+        if not is_admin:
             raise HTTPException(status_code=403, detail="project.owner_only")
 
-    await project_manager.remove(db, id=project_id)
+    await project_manager.soft_delete(db, project, current_user.id)
 
 
 @router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
@@ -125,6 +127,18 @@ async def add_member(
     user = await user_manager.get(db, member_in.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="user.not_found")
+
+    await project_manager.validate_role(db, member_in.role_id, project.workspace_id)
+    if project.workspace_id:
+        workspace = await db.get(Workspace, project.workspace_id)
+        if (
+            workspace
+            and workspace.type != "personal"
+            and not await project_manager.is_workspace_member(
+                db, project.workspace_id, member_in.user_id
+            )
+        ):
+            raise HTTPException(status_code=400, detail="project.user_not_in_workspace")
 
     result = await project_manager.add_member(
         db, project_id, member_in.user_id, member_in.project_role, member_in.role_id
@@ -186,7 +200,7 @@ async def update_member(
     - Any user may update their own telegram_thread_id.
     - Only the PM/owner may change roles.
     """
-    await get_project_access(project_id, db, current_user)
+    project = await get_project_access(project_id, db, current_user)
 
     member = await project_manager.get_member(db, project_id, user_id)
     if not member:
@@ -194,14 +208,17 @@ async def update_member(
 
     update_data = member_in.model_dump(exclude_unset=True)
 
-    # Check permissions
-    if "project_role" in update_data:
-        # Require PM access to update roles
+    # Without PM rights a user may only change their own telegram_thread_id;
+    # everything else (project_role, role_id, ...) needs the owner or a PM
+    self_service = current_user.id == user_id and set(update_data) <= {
+        "telegram_thread_id"
+    }
+    if not self_service:
         await get_project_pm_access(project_id, db, current_user)
 
-    if "telegram_thread_id" in update_data:
-        # Allow user to update their own, OR require PM access
-        if current_user.id != user_id:
-            await get_project_pm_access(project_id, db, current_user)
+    if "role_id" in update_data:
+        await project_manager.validate_role(
+            db, update_data["role_id"], project.workspace_id
+        )
 
     return await project_manager.update_member(db, member, update_data)

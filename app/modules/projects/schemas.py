@@ -27,7 +27,6 @@ class ProjectUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     telegram_chat_id: Optional[str] = None
-    workspace_id: Optional[uuid.UUID] = None
     type: Optional[str] = None
 
 
