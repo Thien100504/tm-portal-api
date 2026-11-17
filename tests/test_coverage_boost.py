@@ -144,6 +144,7 @@ async def test_delete_workspace_unhandled_exception():
     db = AsyncMock()
     db.get = AsyncMock(return_value=ws)
     db.delete = AsyncMock()
+    db.scalar = AsyncMock(return_value=0)  # no live projects
     db.commit = AsyncMock(side_effect=RuntimeError("boom"))
     db.rollback = AsyncMock()
 
@@ -172,7 +173,7 @@ async def test_update_workspace_member_integrity_error():
 
     with pytest.raises(HTTPException) as exc:
         await workspace_manager.update_workspace_member(
-            db, ws.id, uuid.uuid4(), WorkspaceMemberUpdate(role_id=uuid.uuid4()), user
+            db, ws.id, uuid.uuid4(), WorkspaceMemberUpdate(role_id=None), user
         )
     assert exc.value.status_code == 409
 
@@ -195,7 +196,7 @@ async def test_update_workspace_member_operational_error():
 
     with pytest.raises(HTTPException) as exc:
         await workspace_manager.update_workspace_member(
-            db, ws.id, uuid.uuid4(), WorkspaceMemberUpdate(role_id=uuid.uuid4()), user
+            db, ws.id, uuid.uuid4(), WorkspaceMemberUpdate(role_id=None), user
         )
     assert exc.value.status_code == 503
 
