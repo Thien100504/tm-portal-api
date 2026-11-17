@@ -190,16 +190,29 @@ async def delete_task(
         )
 
     from datetime import datetime, timezone
-    from sqlalchemy import delete as sa_delete, or_, update as sa_update
+    from sqlalchemy import delete as sa_delete, or_, select, update as sa_update
     from app.models.task import Task, TaskDependency
 
     now = datetime.now(timezone.utc)
-    # A deleted task must not keep blocking (or depending on) other tasks
+    # The task and its subtasks (deleted with it) must not keep blocking,
+    # or depending on, other tasks
+    subtask_ids = (
+        (
+            await db.execute(
+                select(Task.id).where(
+                    Task.parent_task_id == task_id, Task.is_deleted.is_(False)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    removed_ids = [task_id, *subtask_ids]
     await db.execute(
         sa_delete(TaskDependency).where(
             or_(
-                TaskDependency.task_id == task_id,
-                TaskDependency.depends_on_id == task_id,
+                TaskDependency.task_id.in_(removed_ids),
+                TaskDependency.depends_on_id.in_(removed_ids),
             )
         )
     )

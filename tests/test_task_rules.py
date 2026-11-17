@@ -190,3 +190,33 @@ def test_assigned_and_completed_are_external_only_over_rabbitmq():
     assert "inapp" not in EXTERNAL_ONLY["task.assigned"]
     assert "inapp" not in EXTERNAL_ONLY["task.completed"]
     assert EXTERNAL_ONLY["task.unblocked"] == []
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_task_removes_the_links_of_its_subtasks():
+    me = _user()
+    task = _task(created_by=me.id)
+    sub_id = uuid.uuid4()
+    statements = []
+
+    async def execute(stmt):
+        statements.append(stmt)
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [sub_id]
+        return result
+
+    db = MagicMock()
+    db.execute = execute
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    with (
+        patch.object(task_manager, "get_by_id", new=AsyncMock(return_value=task)),
+        patch.object(tasks_router, "get_project_access", new=AsyncMock()),
+        patch.object(tasks_router.task_events, "emit", new=AsyncMock()),
+    ):
+        await tasks_router.delete_task(task.id, MagicMock(), db, me)
+    delete_stmt = next(
+        s for s in statements if str(s).startswith("DELETE FROM task_dependencies")
+    )
+    params = delete_stmt.compile().params
+    assert any(sub_id in v for v in params.values() if isinstance(v, list))
