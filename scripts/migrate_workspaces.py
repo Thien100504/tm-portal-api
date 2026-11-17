@@ -29,7 +29,7 @@ async def migrate():
                     Workspace.owner_id == user.id, Workspace.type == "personal"
                 )
             )
-            ws = ws_result.scalar_one_or_none()
+            ws = ws_result.scalars().first()  # users may own several
 
             if not ws:
                 # Create new
@@ -60,7 +60,7 @@ async def migrate():
 
         # 2. Update projects and tasks where workspace_id = NULL
         result_proj = await session.execute(
-            select(Project).where(Project.workspace_id is None)
+            select(Project).where(Project.workspace_id.is_(None))
         )
         projects = result_proj.scalars().all()
 
@@ -87,7 +87,7 @@ async def migrate():
                 # Update all tasks in this project to the same workspace
                 await session.execute(
                     update(Task)
-                    .where(Task.project_id == proj.id, Task.workspace_id is None)
+                    .where(Task.project_id == proj.id, Task.workspace_id.is_(None))
                     .values(workspace_id=ws_id)
                 )
             else:

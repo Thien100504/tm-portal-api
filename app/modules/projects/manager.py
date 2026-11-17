@@ -232,13 +232,24 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         project_role: str,
         role_id: Optional[uuid.UUID] = None,
     ) -> ProjectMember | None:
-        member = ProjectMember(
-            project_id=project_id,
-            user_id=user_id,
-            project_role=project_role,
-            role_id=role_id,
+        member = await db.scalar(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id, ProjectMember.user_id == user_id
+            )
         )
-        db.add(member)
+        if member:  # soft-deleted earlier: reactivate instead of a duplicate key
+            member.is_deleted = False
+            member.deleted_at = None
+            member.project_role = project_role
+            member.role_id = role_id
+        else:
+            member = ProjectMember(
+                project_id=project_id,
+                user_id=user_id,
+                project_role=project_role,
+                role_id=role_id,
+            )
+            db.add(member)
         await db.flush()
 
         # Eager load user relationship for response

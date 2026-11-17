@@ -4,11 +4,11 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 logger = logging.getLogger(__name__)
 from typing import List, Dict
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, and_
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -46,6 +46,38 @@ class WorkspaceManager:
                 )
         return ws
 
+    async def _validate_role(
+        self, db: AsyncSession, role_id, workspace_id: UUID
+    ) -> None:
+        """A live workspace-scoped role of this workspace, or a system one."""
+        if role_id is None:
+            return
+        role = await db.scalar(
+            select(Role).where(Role.id == role_id, Role.is_deleted.is_(False))
+        )
+        if (
+            not role
+            or role.scope != "workspace"
+            or not (role.is_system_default or role.workspace_id == workspace_id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="workspace.invalid_role"
+            )
+
+    @staticmethod
+    def _check_target_member(ws: Workspace, user_id: UUID, current_user: User) -> None:
+        """Admins cannot change or remove the owner, nor themselves."""
+        if user_id == ws.owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="workspace.cannot_modify_owner",
+            )
+        if user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="workspace.cannot_modify_self",
+            )
+
     async def list_workspaces(
         self, db: AsyncSession, current_user: User
     ) -> List[Workspace]:
@@ -57,6 +89,7 @@ class WorkspaceManager:
                 and_(
                     ProjectMember.project_id == Project.id,
                     ProjectMember.user_id == current_user.id,
+                    ProjectMember.is_deleted.is_(False),
                 ),
             )
             .where(
@@ -260,6 +293,31 @@ class WorkspaceManager:
         self, db: AsyncSession, workspace_id: UUID, current_user: User
     ) -> None:
         ws = await self._check_workspace_owner(db, workspace_id, current_user.id)
+        if ws.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="workspace.owner_required"
+            )
+        # Deleting cascades to every project and task: refuse while projects remain
+        live_projects = await db.scalar(
+            select(func.count(Project.id)).where(
+                Project.workspace_id == workspace_id, Project.is_deleted.is_(False)
+            )
+        )
+        if live_projects:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="workspace.not_empty"
+            )
+        if ws.type == "personal":
+            personal = await db.scalar(
+                select(func.count(Workspace.id)).where(
+                    Workspace.owner_id == current_user.id, Workspace.type == "personal"
+                )
+            )
+            if (personal or 0) <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="workspace.last_personal",
+                )
 
         try:
             await db.delete(ws)
@@ -323,7 +381,13 @@ class WorkspaceManager:
         invite_in: WorkspaceMemberInvite,
         current_user: User,
     ) -> Dict[str, str]:
-        await self._check_workspace_owner(db, workspace_id, current_user.id)
+        ws = await self._check_workspace_owner(db, workspace_id, current_user.id)
+        if ws.type == "personal":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="workspace.personal_cannot_invite",
+            )
+        await self._validate_role(db, invite_in.role_id, workspace_id)
 
         user_stmt = select(User).where(User.email == invite_in.email)
         user = await db.scalar(user_stmt)
@@ -337,6 +401,7 @@ class WorkspaceManager:
             if mem:
                 if mem.is_deleted:
                     mem.is_deleted = False
+                    mem.deleted_at = None
                     mem.role_id = invite_in.role_id
                 else:
                     raise HTTPException(
@@ -356,7 +421,7 @@ class WorkspaceManager:
                 email=invite_in.email,
                 role_id=invite_in.role_id,
                 token=secrets.token_urlsafe(32),
-                expires_at=datetime.utcnow() + timedelta(days=7),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             )
             db.add(inv)
 
@@ -384,7 +449,8 @@ class WorkspaceManager:
         member_in: WorkspaceMemberUpdate,
         current_user: User,
     ) -> WorkspaceMember:
-        await self._check_workspace_owner(db, workspace_id, current_user.id)
+        ws = await self._check_workspace_owner(db, workspace_id, current_user.id)
+        self._check_target_member(ws, user_id, current_user)
 
         mem = await db.scalar(
             select(WorkspaceMember).where(
@@ -399,6 +465,7 @@ class WorkspaceManager:
                 detail="workspace.member_not_found",
             )
 
+        await self._validate_role(db, member_in.role_id, workspace_id)
         mem.role_id = member_in.role_id
 
         try:
@@ -432,7 +499,8 @@ class WorkspaceManager:
     async def remove_workspace_member(
         self, db: AsyncSession, workspace_id: UUID, user_id: UUID, current_user: User
     ) -> None:
-        await self._check_workspace_owner(db, workspace_id, current_user.id)
+        ws = await self._check_workspace_owner(db, workspace_id, current_user.id)
+        self._check_target_member(ws, user_id, current_user)
 
         mem = await db.scalar(
             select(WorkspaceMember).where(
@@ -447,8 +515,21 @@ class WorkspaceManager:
                 detail="workspace.member_not_found",
             )
 
+        now = datetime.now(timezone.utc)
         mem.is_deleted = True
-        mem.deleted_at = datetime.utcnow()
+        mem.deleted_at = now
+        # Leaving the workspace also ends the memberships of its projects
+        await db.execute(
+            update(ProjectMember)
+            .where(
+                ProjectMember.user_id == user_id,
+                ProjectMember.is_deleted.is_(False),
+                ProjectMember.project_id.in_(
+                    select(Project.id).where(Project.workspace_id == workspace_id)
+                ),
+            )
+            .values(is_deleted=True, deleted_at=now)
+        )
         try:
             await db.commit()
         except IntegrityError as e:
