@@ -12,6 +12,7 @@ from app.modules.auth.dependencies import get_current_active_user
 from app.modules.projects.dependencies import get_project_access, get_project_pm_access
 from app.modules.sprints.manager import sprint_manager
 from app.modules.sprints.schemas import (
+    check_sprint_dates,
     SprintCreate,
     SprintCompleteRequest,
     SprintResponse,
@@ -81,6 +82,13 @@ async def update_sprint(
     """Update a sprint (name, goal, planned dates). PM/owner only."""
     sprint = await _get_sprint_or_404(db, sprint_id)
     await get_project_pm_access(sprint.project_id, db, current_user)
+    changes = sprint_in.model_dump(exclude_unset=True)
+    error = check_sprint_dates(
+        changes.get("start_date", sprint.start_date),
+        changes.get("end_date", sprint.end_date),
+    )
+    if error:
+        raise HTTPException(status_code=400, detail=error)
     return await sprint_manager.update(db, db_obj=sprint, obj_in=sprint_in)
 
 

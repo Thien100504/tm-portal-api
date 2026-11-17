@@ -2,7 +2,19 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+MAX_SPRINT_DAYS = 365
+
+
+def check_sprint_dates(start: Optional[date], end: Optional[date]) -> Optional[str]:
+    """Error code when the planned dates are inconsistent, else None."""
+    if start and end:
+        if end < start:
+            return "sprint.error_end_before_start"
+        if (end - start).days > MAX_SPRINT_DAYS:
+            return "sprint.error_too_long"
+    return None
 
 
 class SprintBase(BaseModel):
@@ -10,11 +22,17 @@ class SprintBase(BaseModel):
     goal: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    status: str = Field(default="planning")
 
 
 class SprintCreate(SprintBase):
-    pass
+    # status is not accepted: it only changes through start / complete / reopen
+
+    @model_validator(mode="after")
+    def _dates(self):
+        error = check_sprint_dates(self.start_date, self.end_date)
+        if error:
+            raise ValueError(error)
+        return self
 
 
 class SprintUpdate(BaseModel):
@@ -22,11 +40,18 @@ class SprintUpdate(BaseModel):
     goal: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    status: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_null(cls, value):
+        if value is None:
+            raise ValueError("name cannot be null")
+        return value
 
 
 class SprintResponse(SprintBase):
     id: uuid.UUID
+    status: str
     project_id: uuid.UUID
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

@@ -112,7 +112,14 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
                     detail="sprint.error_no_target_sprint",
                 )
             target = await db.get(Sprint, target_sprint_id)
-            if not target or target.is_deleted or target.status == "completed":
+            if (
+                not target
+                or target.is_deleted
+                or target.status == "completed"
+                or target.id == sprint.id
+                or target.project_id
+                != sprint.project_id  # no moving tasks across projects
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="sprint.error_invalid_target_sprint",
@@ -231,7 +238,8 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
 
         start, end = _as_utc(start), _as_utc(end)
         total_hours = sum(t.estimated_hours or 1.0 for t in tasks)
-        total_days = max((end - start).days, 1)
+        # bounded: dates are validated, but never loop over years of days
+        total_days = min(max((end - start).days, 1), 366)
 
         points = []
         for day_offset in range(total_days + 1):
