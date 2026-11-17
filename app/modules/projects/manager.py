@@ -75,7 +75,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
 
         for p in projects:
             setattr(p, "member_count", counts_map.get(p.id, 0))
-            setattr(p, "members", p.memberships)
+            setattr(p, "members", [m for m in p.memberships if not m.is_deleted])
 
         return projects
 
@@ -89,7 +89,9 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
             )
         )
         setattr(project, "member_count", count)
-        setattr(project, "members", project.memberships)
+        setattr(
+            project, "members", [m for m in project.memberships if not m.is_deleted]
+        )
         return project
 
     async def get_project_for_user(
@@ -232,13 +234,25 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         project_role: str,
         role_id: Optional[uuid.UUID] = None,
     ) -> ProjectMember | None:
-        member = ProjectMember(
-            project_id=project_id,
-            user_id=user_id,
-            project_role=project_role,
-            role_id=role_id,
+        member = await db.scalar(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id, ProjectMember.user_id == user_id
+            )
         )
-        db.add(member)
+        if member:  # soft-deleted earlier: reactivate instead of a duplicate key
+            member.is_deleted = False
+            member.deleted_at = None
+            member.telegram_thread_id = None
+            member.project_role = project_role
+            member.role_id = role_id
+        else:
+            member = ProjectMember(
+                project_id=project_id,
+                user_id=user_id,
+                project_role=project_role,
+                role_id=role_id,
+            )
+            db.add(member)
         await db.flush()
 
         # Eager load user relationship for response

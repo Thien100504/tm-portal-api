@@ -33,6 +33,30 @@ class UserManager(BaseManager[User, UserCreate, UserUpdate]):
         await db.commit()
         await db.refresh(db_user)
 
+        # Create a default workspace (Personal Workspace) for the new user
+        from app.models.workspace import Workspace
+
+        default_settings = {
+            "enable_members": False,
+            "enable_sprint": False,
+            "enable_epics": False,
+            "enable_story_points": False,
+            "enable_workload": False,
+            "enable_automation": False,
+            "enable_ai": True,
+            "enable_time_tracking": False,
+            "enable_calendar": True,
+            "theme": "minimal",
+        }
+        default_ws = Workspace(
+            name="Personal Workspace",
+            type="personal",
+            owner_id=db_user.id,
+            settings=default_settings,
+        )
+        db.add(default_ws)
+        await db.commit()
+
         return db_user
 
     async def search_users(self, db: AsyncSession, query: str) -> List[User]:
