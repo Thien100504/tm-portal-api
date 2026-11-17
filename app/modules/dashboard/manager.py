@@ -119,6 +119,7 @@ class DashboardManager:
                 and_(
                     ProjectMember.project_id == Project.id,
                     ProjectMember.user_id == user_id,
+                    ProjectMember.is_deleted.is_(False),
                 ),
             )
             .outerjoin(Role, ProjectMember.role_id == Role.id)
@@ -179,6 +180,7 @@ class DashboardManager:
             .join(Role, ProjectMember.role_id == Role.id)
             .where(
                 ProjectMember.user_id == user_id,
+                ProjectMember.is_deleted.is_(False),
                 Role.name == "Project Manager",
             )
         )
@@ -200,7 +202,10 @@ class DashboardManager:
                 (
                     await db.execute(
                         select(ProjectMember.user_id)
-                        .where(ProjectMember.project_id.in_(pm_project_ids))
+                        .where(
+                            ProjectMember.project_id.in_(pm_project_ids),
+                            ProjectMember.is_deleted.is_(False),
+                        )
                         .distinct()
                     )
                 )
