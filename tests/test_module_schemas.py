@@ -108,7 +108,7 @@ def test_comment_create_empty():
 def test_sprint_create():
     s = SprintCreate(name="Sprint 1")
     assert s.name == "Sprint 1"
-    assert s.status == "planning"
+    assert "status" not in s.model_dump()  # status only changes via the lifecycle
 
 
 def test_sprint_update():
