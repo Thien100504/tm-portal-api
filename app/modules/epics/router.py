@@ -52,9 +52,10 @@ async def create_epic(
     if epic_in.project_id:
         project = await get_project_pm_access(epic_in.project_id, db, current_user)
         # a project epic always lives in the project's workspace
-        if project.workspace_id != epic_in.workspace_id:
-            raise HTTPException(status_code=400, detail="epic.workspace_mismatch")
+        epic_in.workspace_id = project.workspace_id
     else:
+        if not epic_in.workspace_id:
+            raise HTTPException(status_code=400, detail="epic.missing_scope")
         await check_workspace_access(epic_in.workspace_id, db, current_user)
         await check_epic_manage(None, epic_in.workspace_id, db, current_user)
 

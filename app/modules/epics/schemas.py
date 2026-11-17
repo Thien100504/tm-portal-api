@@ -17,7 +17,8 @@ class EpicBase(BaseModel):
 
 
 class EpicCreate(EpicBase):
-    workspace_id: UUID
+    # optional for project epics: they always live in the project's workspace
+    workspace_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
 
 
@@ -36,7 +37,13 @@ class EpicUpdate(BaseModel):
         return value
 
 
-class EpicResponse(EpicBase):
+class EpicResponse(BaseModel):
+    # plain types: only input is validated, older rows must still be listed
+    name: str
+    description: Optional[str] = None
+    color: Optional[str] = None
+    status: str
+    due_date: Optional[date] = None
     id: UUID
     workspace_id: UUID
     project_id: Optional[UUID] = None

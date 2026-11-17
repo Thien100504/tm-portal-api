@@ -87,7 +87,7 @@ async def test_workspace_admin_soft_deletes_an_epic():
 
 
 @pytest.mark.asyncio
-async def test_project_epic_must_use_the_projects_workspace():
+async def test_project_epic_uses_the_projects_workspace():
     project = SimpleNamespace(workspace_id=uuid.uuid4())
     epic_in = EpicCreate(name="e", workspace_id=uuid.uuid4(), project_id=uuid.uuid4())
     with (
@@ -96,10 +96,28 @@ async def test_project_epic_must_use_the_projects_workspace():
         ),
         patch.object(epic_manager, "create", new=AsyncMock()) as create,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await epics_router.create_epic(epic_in, MagicMock(), _user())
-    assert exc.value.detail == "epic.workspace_mismatch"
-    create.assert_not_awaited()
+        await epics_router.create_epic(epic_in, MagicMock(), _user())
+    assert create.await_args.kwargs["obj_in"].workspace_id == project.workspace_id
+
+
+def test_existing_rows_with_old_values_are_still_listed():
+    from datetime import datetime
+
+    from app.modules.epics.schemas import EpicResponse
+
+    row = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        project_id=None,
+        name="old",
+        description=None,
+        color="blue",
+        status="planned",
+        due_date=None,
+        created_at=datetime.now(),
+        updated_at=None,
+    )
+    assert EpicResponse.model_validate(row).color == "blue"
 
 
 @pytest.mark.asyncio
