@@ -16,6 +16,7 @@ from app.modules.ai.router import router as ai_router
 from app.modules.automation.router import router as automation_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.workspaces.router import router as workspace_router
+from app.modules.epics.router import router as epic_router
 from app.modules.rbac.router import router as rbac_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
@@ -31,4 +32,5 @@ api_v1_router.include_router(ai_router)  # /api/v1/projects/{id}/ai-insights/
 api_v1_router.include_router(automation_router)  # /api/v1/projects/{id}/automations/
 api_v1_router.include_router(notifications_router)  # /api/v1/notifications/
 api_v1_router.include_router(workspace_router)  # /api/v1/workspaces/...
+api_v1_router.include_router(epic_router)  # /api/v1/epics/...
 api_v1_router.include_router(rbac_router)  # /api/v1/roles/...
