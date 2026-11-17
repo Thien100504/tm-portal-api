@@ -125,6 +125,24 @@ class ReassignAction(ActionHandler):
         if task.assignee_id == user_id:
             return False
 
+        # Only live members of the project can be assigned by a rule
+        from sqlalchemy import select
+
+        from app.models.project import ProjectMember
+
+        member = await db.scalar(
+            select(ProjectMember.user_id).where(
+                ProjectMember.project_id == task.project_id,
+                ProjectMember.user_id == user_id,
+                ProjectMember.is_deleted.is_(False),
+            )
+        )
+        if not member:
+            logger.info(
+                "Rule '%s' skipped: %s is not a project member", rule.name, user_id
+            )
+            return False
+
         task.assignee_id = user_id
         from app.modules.notifications import service as notif_svc
 

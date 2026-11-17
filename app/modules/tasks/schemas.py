@@ -1,8 +1,19 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from datetime import timezone
+
+from pydantic import BaseModel, Field, field_validator
+
+TaskStatus = Literal["todo", "in_progress", "review", "done"]
+
+
+def _aware(value: Optional[datetime]) -> Optional[datetime]:
+    """Deadlines without a timezone are taken as UTC (the column is timezone-aware)."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 # --- Shared Base Schemas ---
@@ -15,6 +26,11 @@ class TaskBase(BaseModel):
     story_points: Optional[int] = Field(None, ge=0)
     auto_start: bool = False
     epic_id: Optional[UUID] = None
+
+    @field_validator("deadline")
+    @classmethod
+    def _deadline_utc(cls, value):
+        return _aware(value)
 
 
 # --- Task Dependencies ---
@@ -49,6 +65,7 @@ class CommentResponse(BaseModel):
 # --- Task Create & Update ---
 class TaskCreate(TaskBase):
     project_id: UUID
+    status: TaskStatus = "todo"  # the board can create a task directly in a column
     sprint_id: Optional[UUID] = None
     assignee_id: Optional[UUID] = None
     parent_task_id: Optional[UUID] = None
@@ -67,14 +84,19 @@ class TaskUpdate(BaseModel):
     epic_id: Optional[UUID] = None
     auto_start: Optional[bool] = None
 
+    @field_validator("deadline")
+    @classmethod
+    def _deadline_utc(cls, value):
+        return _aware(value)
+
 
 class TaskStatusUpdate(BaseModel):
-    status: str
+    status: TaskStatus
     override: bool = False  # For PMs to bypass dependency checks
 
 
 class TaskPositionUpdate(BaseModel):
-    status: str
+    status: TaskStatus
     insert_after_id: Optional[UUID] = None
 
 

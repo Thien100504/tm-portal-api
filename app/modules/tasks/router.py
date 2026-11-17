@@ -11,7 +11,10 @@ from app.events.task_events import task_events
 from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.projects.manager import project_manager
-from app.modules.projects.dependencies import get_project_access
+from app.modules.projects.dependencies import (
+    get_project_access,
+    require_project_permission,
+)
 from app.modules.tasks import schemas
 from app.modules.tasks.manager import task_manager
 from app.modules.automation.manager import automation_manager
@@ -179,13 +182,27 @@ async def delete_task(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    if task.created_by == current_user.id:
+        await get_project_access(task.project_id, db, current_user)
+    else:
+        await require_project_permission("task.delete")(
+            task.project_id, db, current_user
+        )
 
-    from datetime import datetime
-    from sqlalchemy import update as sa_update
-    from app.models.task import Task
+    from datetime import datetime, timezone
+    from sqlalchemy import delete as sa_delete, or_, update as sa_update
+    from app.models.task import Task, TaskDependency
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    # A deleted task must not keep blocking (or depending on) other tasks
+    await db.execute(
+        sa_delete(TaskDependency).where(
+            or_(
+                TaskDependency.task_id == task_id,
+                TaskDependency.depends_on_id == task_id,
+            )
+        )
+    )
     task.is_deleted = True
     task.deleted_at = now
     task.deleted_by = current_user.id
@@ -312,13 +329,20 @@ async def update_task_position(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    project = await get_project_access(task.project_id, db, current_user)
+    member = await project_manager.get_member(db, task.project_id, current_user.id)
+    can_override = (
+        current_user.system_role == "admin"
+        or project.owner_id == current_user.id
+        or bool(member and member.project_role == "project_manager")
+    )
 
     task = await task_manager.update_position(
         db,
         task,
         new_status=position_in.status,
         insert_after_id=position_in.insert_after_id,
+        override=can_override,
     )
     await db.flush()
     await db.refresh(task)
@@ -346,6 +370,7 @@ async def assign_task(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
+    await get_project_access(task.project_id, db, current_user)
 
     if assign_in.assignee_id:
         task = await task_manager.assign_task(db, task, assign_in.assignee_id)

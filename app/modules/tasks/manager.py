@@ -13,11 +13,71 @@ logger = logging.getLogger(__name__)
 
 from app.core.base_manager import BaseManager
 from app.models.task import Task, TaskDependency, Comment
+from app.models.sprint import Sprint
 from app.models.project import ProjectMember
 from app.modules.tasks.schemas import TaskCreate, TaskUpdate
 
 
+def _utc(value):
+    from datetime import datetime, timezone
+
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
+    async def _check_refs(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        workspace_id: Optional[uuid.UUID],
+        sprint_id: Optional[uuid.UUID] = None,
+        epic_id: Optional[uuid.UUID] = None,
+        assignee_id: Optional[uuid.UUID] = None,
+    ) -> None:
+        """Sprints, epics and assignees must belong to the task's project."""
+        if sprint_id:
+            sprint = await db.get(Sprint, sprint_id)
+            if not sprint or sprint.is_deleted or sprint.project_id != project_id:
+                raise HTTPException(status_code=400, detail="task.error_invalid_sprint")
+        if epic_id:
+            from app.models.epic import Epic
+
+            epic = await db.get(Epic, epic_id)
+            same_scope = epic and (
+                epic.project_id == project_id
+                or (epic.project_id is None and epic.workspace_id == workspace_id)
+            )
+            if not same_scope or getattr(epic, "is_deleted", False):
+                raise HTTPException(status_code=400, detail="task.error_invalid_epic")
+        if assignee_id:
+            member = await db.scalar(
+                select(ProjectMember.user_id).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == assignee_id,
+                    ProjectMember.is_deleted.is_(False),
+                )
+            )
+            if not member:
+                raise HTTPException(
+                    status_code=400, detail="task.error_assignee_not_member"
+                )
+
+    async def _get_live_task(
+        self,
+        db: AsyncSession,
+        task_id: uuid.UUID,
+        project_id: uuid.UUID,
+        error: str,
+        status_code: int = 400,
+    ) -> Task:
+        """A task that exists, is not deleted and belongs to the given project."""
+        other = await db.get(Task, task_id)
+        if not other or other.is_deleted or other.project_id != project_id:
+            raise HTTPException(status_code=status_code, detail=error)
+        return other
+
     async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID) -> Optional[Task]:
         """
         Task details: loads subtasks, dependencies and dependent_tasks.
@@ -72,15 +132,21 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         self, db: AsyncSession, obj_in: TaskCreate, creator_id: uuid.UUID
     ) -> Task:
         max_pos_query = select(func.max(Task.position)).where(
-            Task.project_id == obj_in.project_id, Task.status == "todo"
+            Task.project_id == obj_in.project_id,
+            Task.status == obj_in.status,
+            Task.is_deleted.is_(False),
         )
         max_pos_result = await db.execute(max_pos_query)
         max_pos = max_pos_result.scalar() or 0
 
         if obj_in.parent_task_id:
-            parent_task = await db.get(Task, obj_in.parent_task_id)
-            if not parent_task:
-                raise HTTPException(status_code=404, detail="task.parent_not_found")
+            parent_task = await self._get_live_task(
+                db,
+                obj_in.parent_task_id,
+                obj_in.project_id,
+                "task.parent_not_found",
+                status_code=404,
+            )
             if parent_task.parent_task_id:
                 raise HTTPException(status_code=400, detail="task.subtask_depth_limit")
 
@@ -88,6 +154,14 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
 
         project = await db.get(Project, obj_in.project_id)
         workspace_id = project.workspace_id if project else None
+        await self._check_refs(
+            db,
+            obj_in.project_id,
+            workspace_id,
+            sprint_id=obj_in.sprint_id,
+            epic_id=obj_in.epic_id,
+            assignee_id=obj_in.assignee_id,
+        )
 
         task = Task(
             **obj_in.model_dump(),
@@ -102,7 +176,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             if (
                 parent_task
                 and parent_task.deadline
-                and task.deadline > parent_task.deadline
+                and _utc(task.deadline) > _utc(parent_task.deadline)
             ):
                 raise HTTPException(
                     status_code=400, detail="task.error_subtask_deadline"
@@ -133,7 +207,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             if (
                 parent_task
                 and parent_task.deadline
-                and new_deadline > parent_task.deadline
+                and _utc(new_deadline) > _utc(parent_task.deadline)
             ):
                 raise HTTPException(
                     status_code=400,
@@ -143,11 +217,13 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         # 2. Rule: a parent's deadline cannot be earlier than any subtask's
         if new_deadline:
             subtasks_query = select(Task.deadline).where(
-                Task.parent_task_id == db_obj.id, Task.deadline.isnot(None)
+                Task.parent_task_id == db_obj.id,
+                Task.deadline.isnot(None),
+                Task.is_deleted.is_(False),
             )
             subtasks_res = await db.execute(subtasks_query)
             for st_deadline in subtasks_res.scalars():
-                if new_deadline < st_deadline:
+                if _utc(new_deadline) < _utc(st_deadline):
                     raise HTTPException(
                         status_code=400,
                         detail="task.error_parent_deadline_earlier_than_subtask",
@@ -170,6 +246,14 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             if "epic_id" in _dump:
                 new_epic_id = _dump["epic_id"]
 
+        await self._check_refs(
+            db,
+            db_obj.project_id,
+            db_obj.workspace_id,
+            sprint_id=None if new_sprint_id is _UNCHANGED else new_sprint_id,
+            epic_id=None if new_epic_id is _UNCHANGED else new_epic_id,
+        )
+
         if new_sprint_id is not _UNCHANGED and new_sprint_id != db_obj.sprint_id:
             await db.execute(
                 sa_update(Task)
@@ -191,7 +275,9 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
     ) -> Task:
         if new_status == "done":
             subtasks_query = select(Task).where(
-                Task.parent_task_id == task.id, Task.status != "done"
+                Task.parent_task_id == task.id,
+                Task.status != "done",
+                Task.is_deleted.is_(False),
             )
             subtasks = (await db.execute(subtasks_query)).scalars().all()
             if subtasks:
@@ -202,7 +288,11 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             deps_query = (
                 select(Task)
                 .join(TaskDependency, Task.id == TaskDependency.depends_on_id)
-                .where(TaskDependency.task_id == task.id, Task.status != "done")
+                .where(
+                    TaskDependency.task_id == task.id,
+                    Task.status != "done",
+                    Task.is_deleted.is_(False),
+                )
             )
             unfinished_deps = (await db.execute(deps_query)).scalars().all()
             if unfinished_deps:
@@ -212,7 +302,9 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
 
         # Moving the parent moves the children (cascade status to subtasks)
         if new_status in ["in_progress", "review"]:
-            subtasks_query = select(Task).where(Task.parent_task_id == task.id)
+            subtasks_query = select(Task).where(
+                Task.parent_task_id == task.id, Task.is_deleted.is_(False)
+            )
             subtasks = (await db.execute(subtasks_query)).scalars().all()
             for sub in subtasks:
                 if new_status == "in_progress" and sub.status == "todo":
@@ -229,10 +321,12 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         task: Task,
         new_status: str,
         insert_after_id: Optional[uuid.UUID] = None,
+        override: bool = False,
     ) -> Task:
         # When the column changes, update the status and cascade
+        # (dependency rules apply unless the caller is allowed to override)
         if task.status != new_status:
-            await self.update_status(db, task, new_status, override=True)
+            await self.update_status(db, task, new_status, override=override)
 
         # Reorder positions
         tasks_in_col_query = (
@@ -241,6 +335,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
                 Task.project_id == task.project_id,
                 Task.status == new_status,
                 Task.parent_task_id.is_(None),
+                Task.is_deleted.is_(False),
             )
             .order_by(Task.position.asc().nulls_last(), Task.created_at.desc())
         )
@@ -305,7 +400,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             select(Task)
             .join(TaskDependency, Task.id == TaskDependency.task_id)
             .where(TaskDependency.depends_on_id == completed_task_id)
-            .where(Task.status != "done")
+            .where(Task.status != "done", Task.is_deleted.is_(False))
         )
         dependent_tasks = (await db.execute(dependent_query)).scalars().all()
 
@@ -315,7 +410,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
                 select(Task.id)
                 .join(TaskDependency, Task.id == TaskDependency.depends_on_id)
                 .where(TaskDependency.task_id == d_task.id)
-                .where(Task.status != "done")
+                .where(Task.status != "done", Task.is_deleted.is_(False))
                 .limit(1)
             )
             is_blocked = (await db.execute(unfinished_deps_query)).scalar()
@@ -350,6 +445,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             Task.id.in_(descendant_ids),
             Task.status != "done",
             Task.deadline.isnot(None),
+            Task.is_deleted.is_(False),
         )
         tasks = (await db.execute(tasks_query)).scalars().all()
         return list(tasks)
@@ -375,14 +471,30 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
     ) -> TaskDependency:
         if task.id == depends_on_id:
             raise HTTPException(status_code=400, detail="task.error_self_dependency")
+        await self._get_live_task(
+            db, depends_on_id, task.project_id, "task.error_invalid_dependency"
+        )
         is_circular = await self.check_circular_dependency(db, task.id, depends_on_id)
         if is_circular:
             raise HTTPException(
                 status_code=400, detail="task.error_circular_dependency"
             )
+        if await self._dependency_exists(db, task.id, depends_on_id):
+            raise HTTPException(status_code=409, detail="task.error_dependency_exists")
         dep = TaskDependency(task_id=task.id, depends_on_id=depends_on_id)
         db.add(dep)
         return dep
+
+    async def _dependency_exists(
+        self, db: AsyncSession, task_id: uuid.UUID, depends_on_id: uuid.UUID
+    ) -> bool:
+        found = await db.scalar(
+            select(TaskDependency.task_id).where(
+                TaskDependency.task_id == task_id,
+                TaskDependency.depends_on_id == depends_on_id,
+            )
+        )
+        return found is not None
 
     async def remove_dependency(
         self, db: AsyncSession, task: Task, depends_on_id: uuid.UUID
