@@ -200,7 +200,10 @@ async def get_ai_insights(
         await db.execute(
             select(ProjectMember, User)
             .join(User, ProjectMember.user_id == User.id)
-            .where(ProjectMember.project_id == project_id)
+            .where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.is_deleted.is_(False),
+            )
         )
     ).all()
 
