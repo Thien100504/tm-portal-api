@@ -382,7 +382,8 @@ async def test_update_workspace_member_success():
 
     mem = MagicMock()
     mem.role_id = None
-    db.scalar = AsyncMock(return_value=mem)
+    role = MagicMock(scope="workspace", is_system_default=True)
+    db.scalar = AsyncMock(side_effect=[mem, role, mem])
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
 
@@ -452,6 +453,7 @@ async def test_sprint_complete_next_sprint():
     target_sprint = MagicMock()
     target_sprint.is_deleted = False
     target_sprint.status = "planning"
+    target_sprint.project_id = sprint.project_id
     db.get = AsyncMock(return_value=target_sprint)
 
     call_count = 0

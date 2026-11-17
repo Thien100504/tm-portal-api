@@ -103,6 +103,9 @@ async def test_delete_workspace_success():
     ws = _make_workspace(owner_id=user.id)
     db.get = AsyncMock(return_value=ws)
     db.delete = AsyncMock()
+    db.scalar = AsyncMock(
+        side_effect=[0, 2]
+    )  # no live projects, two personal workspaces
     db.commit = AsyncMock()
 
     await workspace_manager.delete_workspace(db, ws.id, user)
@@ -120,6 +123,9 @@ async def test_delete_workspace_integrity_error():
     ws = _make_workspace(owner_id=user.id)
     db.get = AsyncMock(return_value=ws)
     db.delete = AsyncMock()
+    db.scalar = AsyncMock(
+        side_effect=[0, 2]
+    )  # no live projects, two personal workspaces
     db.commit = AsyncMock(side_effect=IntegrityError("ref", None, None))
     db.rollback = AsyncMock()
 
@@ -138,6 +144,9 @@ async def test_delete_workspace_operational_error():
     ws = _make_workspace(owner_id=user.id)
     db.get = AsyncMock(return_value=ws)
     db.delete = AsyncMock()
+    db.scalar = AsyncMock(
+        side_effect=[0, 2]
+    )  # no live projects, two personal workspaces
     db.commit = AsyncMock(side_effect=OperationalError("db", None, None))
     db.rollback = AsyncMock()
 
@@ -380,6 +389,7 @@ async def test_add_member_success():
     db.execute.return_value = mock_result
     db.add = MagicMock()
     db.flush = AsyncMock()
+    db.scalar = AsyncMock(return_value=None)  # not a former member
 
     result = await project_manager.add_member(
         db, uuid.uuid4(), uuid.uuid4(), "member", role_id=uuid.uuid4()
