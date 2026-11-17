@@ -38,5 +38,16 @@ class EpicManager(BaseManager[Epic, EpicCreate, EpicUpdate]):
         result = await db.execute(query)
         return list(result.scalars().all())
 
+    async def soft_delete(
+        self, db: AsyncSession, epic: Epic, user_id: uuid.UUID
+    ) -> None:
+        """Mark the epic deleted; tasks keep their epic_id for history."""
+        from datetime import datetime, timezone
+
+        epic.is_deleted = True
+        epic.deleted_at = datetime.now(timezone.utc)
+        epic.deleted_by = user_id
+        await db.flush()
+
 
 epic_manager = EpicManager(Epic)
