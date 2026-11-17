@@ -184,3 +184,23 @@ async def test_automation_manager_update_invalid_action():
     with pytest.raises(HTTPException) as exc:
         await mgr.update(db, rule, update)
     assert exc.value.status_code == 400
+
+
+@pytest.fixture(autouse=True)
+def _skip_project_scope_checks(monkeypatch):
+    """These mocked tests predate the project-scope checks (see test_task_rules.py)."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from app.modules.tasks.manager import task_manager as _tm
+
+    async def _live_task(db, task_id, project_id, error, status_code=400):
+        from fastapi import HTTPException as _HTTPException
+
+        found = await db.get(None, task_id)
+        if not found:
+            raise _HTTPException(status_code=status_code, detail=error)
+        return found
+
+    monkeypatch.setattr(_tm, "_check_refs", _AsyncMock())
+    monkeypatch.setattr(_tm, "_dependency_exists", _AsyncMock(return_value=False))
+    monkeypatch.setattr(_tm, "_get_live_task", _live_task)
