@@ -518,6 +518,13 @@ class WorkspaceManager:
         now = datetime.now(timezone.utc)
         mem.is_deleted = True
         mem.deleted_at = now
+        # Projects the member owns in this workspace go to the workspace owner,
+        # otherwise ownership would keep granting full access
+        await db.execute(
+            update(Project)
+            .where(Project.workspace_id == workspace_id, Project.owner_id == user_id)
+            .values(owner_id=ws.owner_id)
+        )
         # Leaving the workspace also ends the memberships of its projects
         await db.execute(
             update(ProjectMember)

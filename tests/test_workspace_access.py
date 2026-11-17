@@ -165,3 +165,28 @@ async def test_removed_project_members_do_not_list_the_workspace():
     db.execute = execute
     await workspace_manager.list_workspaces(db, _user())
     assert "project_members.is_deleted" in statements[0]
+
+
+@pytest.mark.asyncio
+async def test_removed_member_hands_their_projects_to_the_workspace_owner():
+    owner = _user()
+    ws = _ws(owner.id)
+    member = SimpleNamespace(is_deleted=False, deleted_at=None)
+    db = _db(scalars=[member])
+    with _owner_check(ws):
+        await workspace_manager.remove_workspace_member(db, ws.id, uuid.uuid4(), owner)
+    statements = [str(c.args[0]) for c in db.execute.await_args_list]
+    assert any(s.startswith("UPDATE projects SET owner_id") for s in statements)
+
+
+def test_project_members_skip_removed_rows():
+    from app.modules.projects.manager import project_manager
+    import asyncio
+
+    live = SimpleNamespace(is_deleted=False)
+    gone = SimpleNamespace(is_deleted=True)
+    project = SimpleNamespace(id=uuid.uuid4(), memberships=[live, gone])
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=1)
+    asyncio.run(project_manager.attach_member_count(db, project))
+    assert project.members == [live]
