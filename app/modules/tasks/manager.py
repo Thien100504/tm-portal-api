@@ -401,6 +401,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         member_query = select(ProjectMember).where(
             ProjectMember.project_id == task.project_id,
             ProjectMember.user_id == assignee_id,
+            ProjectMember.is_deleted.is_(False),
         )
         is_member = (await db.execute(member_query)).scalars().first()
         if not is_member:
