@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.projects.dependencies import get_project_access
+from app.modules.projects.dependencies import (
+    get_project_access,
+    require_project_permission,
+)
 from app.modules.ai.schemas import (
     AIInsightsResponse,
     AIMetricsResponse,
@@ -54,5 +57,8 @@ async def submit_feedback(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    await get_project_access(project_id, db, current_user)
-    return await ai_service.update_metric_feedback(db, metric_id, body)
+    # rejecting a breakdown deletes subtasks: it needs the right to edit tasks
+    await require_project_permission("task.update")(project_id, db, current_user)
+    return await ai_service.update_metric_feedback(
+        db, project_id, metric_id, body, user_id=current_user.id
+    )

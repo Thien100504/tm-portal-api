@@ -69,7 +69,7 @@ async def handle_task_completed(task_id_str: str) -> None:
         deps_query = (
             select(Task)
             .join(TaskDependency, Task.id == TaskDependency.task_id)
-            .where(TaskDependency.depends_on_id == task_id)
+            .where(TaskDependency.depends_on_id == task_id, Task.is_deleted.is_(False))
         )
         dependent_tasks = (await db.execute(deps_query)).scalars().all()
 
@@ -83,7 +83,11 @@ async def handle_task_completed(task_id_str: str) -> None:
             all_deps_query = (
                 select(Task)
                 .join(TaskDependency, Task.id == TaskDependency.depends_on_id)
-                .where(TaskDependency.task_id == dep_task.id, Task.status != "done")
+                .where(
+                    TaskDependency.task_id == dep_task.id,
+                    Task.status != "done",
+                    Task.is_deleted.is_(False),
+                )
             )
             unfinished = (await db.execute(all_deps_query)).scalars().all()
 
@@ -205,9 +209,10 @@ def on_message(
 
         assert _worker_loop is not None, "Event loop not initialized"
         # Always try to execute DB-stored automation rules
-        _worker_loop.run_until_complete(
-            handle_automation_rules(routing_key, task_id, context=payload)
-        )
+        if payload.get("source") != "ai_breakdown":
+            _worker_loop.run_until_complete(
+                handle_automation_rules(routing_key, task_id, context=payload)
+            )
 
         # Additionally handle dependency unblocking for task.completed
         if routing_key == "task.completed":
@@ -217,7 +222,7 @@ def on_message(
 
     except Exception as exc:
         logger.exception("❌ Error processing message: %s", exc)
-        channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
 def _shutdown_handler(signum: int, frame: Any) -> None:

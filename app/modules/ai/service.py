@@ -117,6 +117,7 @@ async def get_ai_insights(
                 and_(
                     TaskDependency.depends_on_id == DepTask.id,
                     DepTask.status != "done",
+                    DepTask.is_deleted.is_(False),
                 ),
             )
         )
@@ -818,11 +819,16 @@ Reply EXACTLY in the following JSON format (no markdown, no extra text outside J
                 content = match.group(1)
 
         data = json.loads(content)
-        summary = data.get("summary", "")
-        recommendations = data.get("recommendations", [])
-
+        if not isinstance(data, dict):
+            raise ValueError("AI insights did not return an object")
+        summary = data.get("summary")
+        summary = summary.strip() if isinstance(summary, str) else ""
+        recommendations = data.get("recommendations")
         if not isinstance(recommendations, list):
             recommendations = []
+        recommendations = [
+            r.strip() for r in recommendations if isinstance(r, str) and r.strip()
+        ]
 
         return {
             "summary": summary,
@@ -963,10 +969,14 @@ async def get_ai_metrics(db: AsyncSession, project_id: UUID) -> AIMetricsRespons
 
 
 async def update_metric_feedback(
-    db: AsyncSession, metric_id: UUID, body: AIMetricFeedback
+    db: AsyncSession,
+    project_id: UUID,
+    metric_id: UUID,
+    body: AIMetricFeedback,
+    user_id: Optional[UUID] = None,
 ) -> dict:
     metric = await db.get(AIMetric, metric_id)
-    if not metric:
+    if not metric or metric.project_id != project_id:
         raise HTTPException(status_code=404, detail="metric.not_found")
 
     metric.status = body.status
@@ -978,15 +988,22 @@ async def update_metric_feedback(
         from app.models.task import Task
         from sqlalchemy import update as sa_update
 
+        # Only the subtasks this breakdown created (not those written by people)
+        created_ids = [
+            UUID(i) for i in ((metric.output_data or {}).get("created_ids") or [])
+        ]
         result = await db.execute(
             sa_update(Task)
             .where(
+                Task.id.in_(created_ids),
                 Task.parent_task_id == metric.task_id,
+                Task.project_id == project_id,
                 Task.is_deleted.is_(False),
             )
             .values(
                 is_deleted=True,
                 deleted_at=datetime.now(timezone.utc),
+                deleted_by=user_id,
             )
             .returning(Task.id)
         )

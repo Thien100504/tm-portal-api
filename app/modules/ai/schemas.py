@@ -6,9 +6,9 @@ Pydantic models for the /api/v1/projects/{id}/ai-insights endpoint.
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Literal, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class InsightCard(BaseModel):
@@ -87,8 +87,8 @@ class AIInsightsResponse(BaseModel):
 
 
 class AIMetricFeedback(BaseModel):
-    status: str  # "applied" | "rejected" | "modified"
-    feedback_note: Optional[str] = None
+    status: Literal["applied", "rejected", "modified"]
+    feedback_note: Optional[str] = Field(None, max_length=500)
 
 
 class FeatureStats(BaseModel):

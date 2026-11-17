@@ -92,6 +92,10 @@ async def notify_clients(project_id: str, actor_id: str, ai_result: dict | None 
     await redis_client.aclose()
 
 
+MAX_AI_SUBTASKS = 10
+FIBONACCI_POINTS = {1, 2, 3, 5, 8, 13, 21}
+
+
 async def process_ai_breakdown(payload: dict):
     task_id = payload.get("task_id")
     title = payload.get("title")
@@ -160,44 +164,76 @@ Example:
     except Exception as e:
         logger.error(f"Failed to parse LLM JSON: {content!r}")
         raise e
+    if isinstance(subtasks_data, dict):
+        subtasks_data = subtasks_data.get("subtasks", [])
+    if not isinstance(subtasks_data, list):
+        raise ValueError("AI breakdown did not return a list")
+    titles = []
+    for item in subtasks_data[:MAX_AI_SUBTASKS]:
+        raw = item.get("title") if isinstance(item, dict) else item
+        title = str(raw).strip()[:255] if raw is not None else ""
+        if title:
+            titles.append(title)
 
     async with AsyncSessionLocal() as db:
         from sqlalchemy import update
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         actor_uuid = uuid.UUID(actor_id) if actor_id else None
 
-        # Load the parent task to inherit its sprint_id
+        # The parent decides the project and sprint; a deleted parent stops the job
         parent_task = await db.get(Task, uuid.UUID(task_id))
-        parent_sprint_id = parent_task.sprint_id if parent_task else None
+        if not parent_task or parent_task.is_deleted:
+            logger.warning("AI breakdown skipped: task %s no longer exists", task_id)
+            return None
+        parent_project_id = parent_task.project_id
+        parent_sprint_id = parent_task.sprint_id
 
-        # Soft-delete the old subtasks that are still "todo"
-        update_stmt = (
-            update(Task)
-            .where(
-                Task.parent_task_id == uuid.UUID(task_id),
-                Task.status == "todo",
-                Task.is_deleted == False,
-            )
-            .values(
-                is_deleted=True, deleted_at=datetime.utcnow(), deleted_by=actor_uuid
+        # Replace only the subtasks an earlier AI breakdown created that are still
+        # "todo"; subtasks written by people are kept
+        previous = await db.execute(
+            select(AIMetric.output_data).where(
+                AIMetric.feature == "breakdown",
+                AIMetric.task_id == parent_task.id,
             )
         )
-        await db.execute(update_stmt)
-        await db.flush()
+        old_ids = [
+            uuid.UUID(i)
+            for data in previous.scalars()
+            for i in ((data or {}).get("created_ids") or [])
+        ]
+        if old_ids:
+            await db.execute(
+                update(Task)
+                .where(
+                    Task.id.in_(old_ids),
+                    Task.parent_task_id == parent_task.id,
+                    Task.status == "todo",
+                    Task.is_deleted.is_(False),
+                )
+                .values(
+                    is_deleted=True,
+                    deleted_at=datetime.now(timezone.utc),
+                    deleted_by=actor_uuid,
+                )
+            )
+            await db.flush()
 
         max_pos_query = select(func.max(Task.position)).where(
-            Task.project_id == uuid.UUID(project_id), Task.status == "todo"
+            Task.project_id == parent_project_id,
+            Task.status == "todo",
+            Task.is_deleted.is_(False),
         )
         max_pos = (await db.execute(max_pos_query)).scalar() or 0
 
         created_task_ids = []
-        for i, st in enumerate(subtasks_data):
+        for i, title in enumerate(titles):
             new_task = Task(
-                project_id=uuid.UUID(project_id),
-                parent_task_id=uuid.UUID(task_id),
+                project_id=parent_project_id,
+                parent_task_id=parent_task.id,
+                workspace_id=parent_task.workspace_id,
                 sprint_id=parent_sprint_id,
-                title=st.get("title", f"Subtask {i + 1}"),
+                title=title,
                 status="todo",
                 priority="medium",
                 position=max_pos + i + 1,
@@ -233,7 +269,11 @@ Example:
         actor_id=actor_id,
         model_used=MODEL_NAME,
         response_time_ms=elapsed_ms,
-        output_data={"subtasks": subtasks_data, "count": len(subtasks_data)},
+        output_data={
+            "subtasks": titles,
+            "count": len(titles),
+            "created_ids": created_task_ids,
+        },
         input_tokens=usage.prompt_tokens if usage else None,
         output_tokens=usage.completion_tokens if usage else None,
     )
@@ -244,7 +284,7 @@ Example:
             "feature": "breakdown",
             "metric_id": metric_id,
             "task_id": task_id,
-            "count": len(subtasks_data),
+            "count": len(titles),
         },
     )
 
@@ -298,10 +338,12 @@ Example:
     except Exception as e:
         logger.error(f"Failed to parse LLM JSON: {content!r}")
         raise e
+    if story_points not in FIBONACCI_POINTS:
+        raise ValueError(f"AI estimate is not a Fibonacci number: {story_points}")
 
     async with AsyncSessionLocal() as db:
         task = await db.get(Task, uuid.UUID(task_id))
-        if task:
+        if task and not task.is_deleted:
             task.story_points = story_points
             await db.commit()
 
