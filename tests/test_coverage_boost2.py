@@ -59,7 +59,7 @@ async def test_update_member_unhandled_exception():
 
     with pytest.raises(RuntimeError):
         await workspace_manager.update_workspace_member(
-            db, ws.id, uuid.uuid4(), WorkspaceMemberUpdate(role_id=uuid.uuid4()), user
+            db, ws.id, uuid.uuid4(), WorkspaceMemberUpdate(role_id=None), user
         )
 
 
