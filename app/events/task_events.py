@@ -175,6 +175,15 @@ def _publish_sync(routing_key: str, payload: dict):
         logger.exception("RabbitMQ publish failed: %s", routing_key)
 
 
+# These events also send an in-app notification directly (emit_direct_notification),
+# so the worker must only use the external channels for them.
+EXTERNAL_ONLY = {
+    "task.assigned": ["email", "telegram"],
+    "task.completed": ["email", "telegram"],
+    "task.unblocked": [],
+}
+
+
 class RabbitMQHandler(EventHandler):
     name = "rabbitmq"
 
@@ -197,6 +206,8 @@ class RabbitMQHandler(EventHandler):
                 "user_id": str(user.id),
                 "email": user.email,
             }
+            if ctx.event_type in EXTERNAL_ONLY:
+                payload["channels"] = EXTERNAL_ONLY[ctx.event_type]
 
             if user.telegram_chat_id:
                 payload["telegram_chat_id"] = user.telegram_chat_id
