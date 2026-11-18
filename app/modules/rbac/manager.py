@@ -17,6 +17,13 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.modules.rbac.schemas import RoleCreate, RoleUpdate, RoleUpdatePermissions
 
+# System role used for project members that have a project_role but no role_id
+PROJECT_ROLE_DEFAULTS = {
+    "project_manager": "Project Manager",
+    "member": "Member",
+    "viewer": "Viewer",
+}
+
 
 class RBACManager:
     async def get_user_permissions(
@@ -67,11 +74,52 @@ class RBACManager:
             prj_res = await db.execute(prj_stmt)
             prj_member = prj_res.scalars().first()
 
+            default_role = None
             if prj_member and prj_member.role and not prj_member.role.is_deleted:
                 for p in prj_member.role.permissions:
                     permissions.add(p.code)
+            elif prj_member:
+                # Members without a role_id (e.g. a project's creator) use project_role
+                default_role = PROJECT_ROLE_DEFAULTS.get(prj_member.project_role)
+
+            # The project owner and the workspace owner always have full project rights
+            if await self._owns_project(db, user_id, project_id, workspace_id):
+                default_role = "Project Manager"
+
+            if default_role:
+                permissions |= await self._system_role_permissions(db, default_role)
 
         return permissions
+
+    async def _owns_project(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        project_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+    ) -> bool:
+        project_owner = await db.scalar(
+            select(Project.owner_id).where(Project.id == project_id)
+        )
+        if project_owner == user_id:
+            return True
+        workspace_owner = await db.scalar(
+            select(Workspace.owner_id).where(Workspace.id == workspace_id)
+        )
+        return workspace_owner == user_id
+
+    async def _system_role_permissions(self, db: AsyncSession, name: str) -> Set[str]:
+        role = await db.scalar(
+            select(Role)
+            .where(
+                Role.name == name,
+                Role.scope == "project",
+                Role.is_system_default.is_(True),
+                Role.is_deleted.is_(False),
+            )
+            .options(selectinload(Role.permissions))
+        )
+        return {p.code for p in role.permissions} if role else set()
 
     async def resolve_workspace(
         self,
