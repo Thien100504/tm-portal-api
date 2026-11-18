@@ -3,6 +3,7 @@ from typing import List
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,12 +21,23 @@ class AdminManager:
         return list(result.scalars().all())
 
     async def update_user_role(
-        self, db: AsyncSession, user_id: uuid.UUID, role: str
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        role: str,
+        actor_id: uuid.UUID | None = None,
     ) -> User:
         user = await db.get(User, user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="admin.user_not_found"
+            )
+
+        # An admin cannot remove their own rights (the system always keeps an admin)
+        if user_id == actor_id and role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="admin.cannot_modify_self",
             )
 
         user.system_role = role
@@ -34,12 +46,22 @@ class AdminManager:
         return user
 
     async def update_user_status(
-        self, db: AsyncSession, user_id: uuid.UUID, is_active: bool
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        is_active: bool,
+        actor_id: uuid.UUID | None = None,
     ) -> User:
         user = await db.get(User, user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="admin.user_not_found"
+            )
+
+        if user_id == actor_id and not is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="admin.cannot_modify_self",
             )
 
         user.is_active = is_active
@@ -133,14 +155,22 @@ class AdminManager:
             user.full_name = full_name
         if email is not None:
             existing = await db.scalar(
-                select(User).where(User.email == email, User.id != user_id)
+                select(User).where(
+                    func.lower(User.email) == email.lower(), User.id != user_id
+                )
             )
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail="admin.email_exists"
                 )
             user.email = email
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="admin.email_exists"
+            )
         await db.refresh(user)
         return user
 

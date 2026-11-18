@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.user import User
 from app.modules.auth.dependencies import require_admin
 from app.modules.admin.schemas import (
     AdminUserResponse,
@@ -25,14 +26,19 @@ async def list_users(db: AsyncSession = Depends(get_db)):
 
 @router.put("/users/{user_id}/role", response_model=AdminUserResponse)
 async def update_user_role(
-    user_id: UUID, role: str = Body(..., embed=True), db: AsyncSession = Depends(get_db)
+    user_id: UUID,
+    role: str = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
     """Change a user's system role (admin only)."""
     if role not in ["admin", "user"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="admin.invalid_role"
         )
-    return await admin_manager.update_user_role(db, user_id, role)
+    return await admin_manager.update_user_role(
+        db, user_id, role, actor_id=current_user.id
+    )
 
 
 @router.put("/users/{user_id}/status", response_model=AdminUserResponse)
@@ -40,9 +46,12 @@ async def update_user_status(
     user_id: UUID,
     is_active: bool = Body(..., embed=True),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
     """Activate/deactivate a user (admin only)."""
-    return await admin_manager.update_user_status(db, user_id, is_active)
+    return await admin_manager.update_user_status(
+        db, user_id, is_active, actor_id=current_user.id
+    )
 
 
 @router.get("/workspaces", response_model=List[WorkspaceAdminResponse])

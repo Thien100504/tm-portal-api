@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
@@ -30,7 +30,7 @@ class DashboardManager:
         workspace_id: uuid.UUID | None = None,
     ) -> PersonalStats:
         user_id = current_user.id
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         week_ago = now - timedelta(days=7)
         next_week = now + timedelta(days=7)
 
@@ -41,11 +41,13 @@ class DashboardManager:
         )
 
         def build_task_count_query(*extra_filters):
-            q = select(func.count(Task.id))
+            q = (
+                select(func.count(Task.id))
+                .join(Project, Task.project_id == Project.id)
+                .where(Project.is_deleted.is_(False))
+            )
             if workspace_id:
-                q = q.join(Project, Task.project_id == Project.id).where(
-                    Project.workspace_id == workspace_id
-                )
+                q = q.where(Project.workspace_id == workspace_id)
             return q.where(base_filter, *extra_filters)
 
         todo_count = await db.scalar(build_task_count_query(Task.status == "todo")) or 0
@@ -69,7 +71,7 @@ class DashboardManager:
         overdue_count = (
             await db.scalar(
                 build_task_count_query(
-                    Task.deadline is not None,
+                    Task.deadline.isnot(None),
                     Task.deadline < now,
                     Task.status != "done",
                 )
@@ -78,8 +80,10 @@ class DashboardManager:
         )
 
         # ── 3. Upcoming tasks (deadline within the next 7 days) ───────────
-        upcoming_q = select(Task, Project.name.label("project_name")).join(
-            Project, Task.project_id == Project.id
+        upcoming_q = (
+            select(Task, Project.name.label("project_name"))
+            .join(Project, Task.project_id == Project.id)
+            .where(Project.is_deleted.is_(False))
         )
         if workspace_id:
             upcoming_q = upcoming_q.where(Project.workspace_id == workspace_id)
@@ -178,16 +182,18 @@ class DashboardManager:
         pm_project_query = (
             select(ProjectMember.project_id)
             .join(Role, ProjectMember.role_id == Role.id)
+            .join(Project, ProjectMember.project_id == Project.id)
             .where(
                 ProjectMember.user_id == user_id,
                 ProjectMember.is_deleted.is_(False),
+                Project.is_deleted.is_(False),
                 Role.name == "Project Manager",
             )
         )
         if workspace_id:
-            pm_project_query = pm_project_query.join(
-                Project, ProjectMember.project_id == Project.id
-            ).where(Project.workspace_id == workspace_id)
+            pm_project_query = pm_project_query.where(
+                Project.workspace_id == workspace_id
+            )
 
         pm_project_ids_rows = (await db.execute(pm_project_query)).scalars().all()
 
@@ -287,6 +293,7 @@ class DashboardManager:
                         and_(
                             TaskDependency.depends_on_id == DepTask.id,
                             DepTask.status != "done",
+                            DepTask.is_deleted.is_(False),
                         ),
                     )
                     .where(
@@ -307,6 +314,7 @@ class DashboardManager:
                         .where(
                             TaskDependency.task_id == row.Task.id,
                             DepTask.status != "done",
+                            DepTask.is_deleted.is_(False),
                         )
                     )
                     or 0
@@ -344,7 +352,7 @@ class DashboardManager:
                 detail="admin.stats_forbidden",
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         week_ago = now - timedelta(days=7)
 
         total_users = await db.scalar(select(func.count(User.id))) or 0
