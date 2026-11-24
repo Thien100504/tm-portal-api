@@ -1,18 +1,17 @@
 import uuid
 from datetime import date, datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
+    description: str | None = None
     status: str = Field(default="active")
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    telegram_chat_id: Optional[str] = None
-    workspace_id: Optional[uuid.UUID] = None
+    start_date: date | None = None
+    end_date: date | None = None
+    telegram_chat_id: str | None = None
+    workspace_id: uuid.UUID | None = None
     type: str = Field(default="standard")
 
 
@@ -21,18 +20,18 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    status: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    telegram_chat_id: Optional[str] = None
-    type: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = None
+    status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    telegram_chat_id: str | None = None
+    type: str | None = None
 
 
 class ProjectResponse(ProjectBase):
     id: uuid.UUID
-    owner_id: Optional[uuid.UUID]
+    owner_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
     member_count: int = Field(default=1)
@@ -41,8 +40,9 @@ class ProjectResponse(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-from app.modules.auth.schemas import UserResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.modules.auth.schemas import UserResponse
 
 
 class RoleResponse(BaseModel):
@@ -56,24 +56,24 @@ class RoleResponse(BaseModel):
 class ProjectMemberCreate(BaseModel):
     user_id: uuid.UUID
     project_role: str = Field(default="viewer")
-    role_id: Optional[uuid.UUID] = None
+    role_id: uuid.UUID | None = None
 
 
 class ProjectMemberUpdate(BaseModel):
-    project_role: Optional[str] = None
-    role_id: Optional[uuid.UUID] = None
-    telegram_thread_id: Optional[str] = None
+    project_role: str | None = None
+    role_id: uuid.UUID | None = None
+    telegram_thread_id: str | None = None
 
 
 class ProjectMemberResponse(BaseModel):
     project_id: uuid.UUID
     user_id: uuid.UUID
     project_role: str
-    role_id: Optional[uuid.UUID] = None
-    role: Optional[RoleResponse] = None
+    role_id: uuid.UUID | None = None
+    role: RoleResponse | None = None
     joined_at: datetime
-    telegram_thread_id: Optional[str] = None
-    user: Optional[UserResponse] = None
+    telegram_thread_id: str | None = None
+    user: UserResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

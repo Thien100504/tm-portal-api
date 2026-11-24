@@ -20,8 +20,8 @@ async def global_websocket_endpoint(
     Auth: Pass JWT access token via ?token= query param.
     Receives: personal notifications (not project specific).
     """
-    await websocket.accept()
     if not token:
+        await websocket.accept()
         await websocket.close(code=1008, reason="Missing token")
         return
 
@@ -29,11 +29,13 @@ async def global_websocket_endpoint(
         try:
             user = await get_current_user_from_token(token, db)
         except Exception:
+            await websocket.accept()
             await websocket.close(code=1008, reason="Invalid or expired token")
             return
 
     user_id_str = str(user.id)
-    manager.user_connections.setdefault(user_id_str, []).append(websocket)
+    # WS-2: manager.connect() instead of setdefault, so logging and cleanup are consistent
+    await manager.connect(websocket, project_id=None, user_id=user_id_str)
     try:
         while True:
             msg = await websocket.receive_text()
@@ -57,8 +59,8 @@ async def websocket_endpoint(
     Auth: Pass JWT access token via ?token= query param.
     Receives: invalidation events + personal notifications.
     """
-    await websocket.accept()
     if not token:
+        await websocket.accept()
         await websocket.close(code=1008, reason="Missing token")
         return
 
@@ -66,17 +68,19 @@ async def websocket_endpoint(
         try:
             user = await get_current_user_from_token(token, db)
         except Exception:
+            await websocket.accept()
             await websocket.close(code=1008, reason="Invalid or expired token")
             return
 
         project = await project_manager.get_project_for_user(db, project_id, user.id)
         if not project:
+            await websocket.accept()
             await websocket.close(code=1008, reason="Not authorized for this project")
             return
 
     user_id_str = str(user.id)
-    manager.active_connections.setdefault(project_id, []).append(websocket)
-    manager.user_connections.setdefault(user_id_str, []).append(websocket)
+    # WS-2: manager.connect() instead of setdefault, so logging and cleanup are consistent
+    await manager.connect(websocket, project_id=project_id, user_id=user_id_str)
     try:
         while True:
             msg = await websocket.receive_text()

@@ -23,7 +23,7 @@ import logging
 import time
 import uuid as uuid_lib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import BackgroundTasks
@@ -293,7 +293,7 @@ class Pipeline:
                 }
                 for r in results
             ],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         ctx.background_tasks.add_task(_persist_execution, record)
 

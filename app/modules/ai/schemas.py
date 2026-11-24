@@ -6,9 +6,9 @@ Pydantic models for the /api/v1/projects/{id}/ai-insights endpoint.
 
 import uuid
 from datetime import datetime
-from typing import Literal, List, Optional
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InsightCard(BaseModel):
@@ -17,13 +17,11 @@ class InsightCard(BaseModel):
     type: str  # "risk" | "success" | "warning" | "info"
     title: str  # fallback text (Vietnamese)
     description: str  # fallback text (Vietnamese)
-    metric: Optional[str] = None  # e.g. "32%", "5 tasks", "2 members"
+    metric: str | None = None  # e.g. "32%", "5 tasks", "2 members"
     # i18n keys: the frontend translates them with t(title_key)
-    title_key: Optional[str] = None
-    description_key: Optional[str] = None
-    description_params: Optional[dict] = (
-        None  # interpolation params for description_key
-    )
+    title_key: str | None = None
+    description_key: str | None = None
+    description_params: dict | None = None  # interpolation params for description_key
 
 
 class TeamMemberInsight(BaseModel):
@@ -44,7 +42,7 @@ class ActiveSprintInsight(BaseModel):
     sprint_name: str
     completion_rate: float  # 0–100
     velocity: int  # number of done tasks
-    days_remaining: Optional[int]
+    days_remaining: int | None
     is_on_track: bool
 
 
@@ -69,26 +67,36 @@ class AIInsightsResponse(BaseModel):
     completion_rate: float  # % done/total
 
     # Insights cards
-    insights: List[InsightCard]
+    insights: list[InsightCard]
 
     # Team workload
-    team_insights: List[TeamMemberInsight]
+    team_insights: list[TeamMemberInsight]
 
     # Sprint
-    active_sprint: Optional[ActiveSprintInsight]
+    active_sprint: ActiveSprintInsight | None
 
     # AI-generated narrative
-    ai_summary: Optional[str]  # a 2-3 sentence assessment
-    ai_recommendations: List[str]  # 3 concrete recommendations
+    ai_summary: str | None  # a 2-3 sentence assessment
+    ai_recommendations: list[str]  # 3 concrete recommendations
     ai_powered: bool  # True when the AI API was called
 
 
 # ── AI Metrics Schemas ──────────────────────────────────────────────
 
 
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatMessageInput(BaseModel):
+    content: str
+    lang: str = "vi"
+
+
 class AIMetricFeedback(BaseModel):
     status: Literal["applied", "rejected", "modified"]
-    feedback_note: Optional[str] = Field(None, max_length=500)
+    feedback_note: str | None = Field(None, max_length=500)
 
 
 class FeatureStats(BaseModel):
@@ -105,11 +113,11 @@ class FeatureStats(BaseModel):
 class RecentMetric(BaseModel):
     id: uuid.UUID
     feature: str
-    task_id: Optional[uuid.UUID]
+    task_id: uuid.UUID | None
     model_used: str
-    response_time_ms: Optional[int]
+    response_time_ms: int | None
     status: str
-    output_data: Optional[dict]
+    output_data: dict | None
     created_at: datetime
 
 
@@ -119,5 +127,27 @@ class AIMetricsResponse(BaseModel):
     overall_acceptance_rate: float
     avg_response_ms: float
     total_tokens_used: int
-    by_feature: List[FeatureStats]
-    recent: List[RecentMetric]
+    by_feature: list[FeatureStats]
+    recent: list[RecentMetric]
+
+
+class ChatMessageResponse(BaseModel):
+    id: uuid.UUID
+    role: str
+    content: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatSessionResponse(BaseModel):
+    id: uuid.UUID
+    title: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatSessionCreate(BaseModel):
+    title: str | None = None

@@ -1,31 +1,29 @@
-from datetime import datetime
-from typing import List, Literal, Optional
+from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
-from datetime import timezone
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TaskStatus = Literal["todo", "in_progress", "review", "done"]
 
 
-def _aware(value: Optional[datetime]) -> Optional[datetime]:
+def _aware(value: datetime | None) -> datetime | None:
     """Deadlines without a timezone are taken as UTC (the column is timezone-aware)."""
     if value is not None and value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 
 # --- Shared Base Schemas ---
 class TaskBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     priority: str = Field(default="medium")
-    deadline: Optional[datetime] = None
-    estimated_hours: Optional[float] = Field(None, ge=0)
-    story_points: Optional[int] = Field(None, ge=0)
+    deadline: datetime | None = None
+    estimated_hours: float | None = Field(None, ge=0)
+    story_points: int | None = Field(None, ge=0)
     auto_start: bool = False
-    epic_id: Optional[UUID] = None
+    epic_id: UUID | None = None
 
     @field_validator("deadline")
     @classmethod
@@ -42,8 +40,7 @@ class TaskDependencyResponse(BaseModel):
     task_id: UUID
     depends_on_id: UUID
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Comments ---
@@ -58,31 +55,30 @@ class CommentResponse(BaseModel):
     content: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Task Create & Update ---
 class TaskCreate(TaskBase):
     project_id: UUID
     status: TaskStatus = "todo"  # the board can create a task directly in a column
-    sprint_id: Optional[UUID] = None
-    assignee_id: Optional[UUID] = None
-    parent_task_id: Optional[UUID] = None
+    sprint_id: UUID | None = None
+    assignee_id: UUID | None = None
+    parent_task_id: UUID | None = None
 
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    priority: Optional[str] = None
-    deadline: Optional[datetime] = None
-    estimated_hours: Optional[float] = Field(None, ge=0)
-    story_points: Optional[int] = Field(None, ge=0)
-    actual_hours: Optional[float] = Field(None, ge=0)
-    position: Optional[int] = None
-    sprint_id: Optional[UUID] = None
-    epic_id: Optional[UUID] = None
-    auto_start: Optional[bool] = None
+    title: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    priority: str | None = None
+    deadline: datetime | None = None
+    estimated_hours: float | None = Field(None, ge=0)
+    story_points: int | None = Field(None, ge=0)
+    actual_hours: float | None = Field(None, ge=0)
+    position: int | None = None
+    sprint_id: UUID | None = None
+    epic_id: UUID | None = None
+    auto_start: bool | None = None
 
     @field_validator("deadline")
     @classmethod
@@ -97,7 +93,7 @@ class TaskStatusUpdate(BaseModel):
 
 class TaskPositionUpdate(BaseModel):
     status: TaskStatus
-    insert_after_id: Optional[UUID] = None
+    insert_after_id: UUID | None = None
 
 
 class CascadeDeadlineRequest(BaseModel):
@@ -110,38 +106,36 @@ class ImpactedTaskResponse(BaseModel):
     current_deadline: datetime
     new_deadline: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskAssign(BaseModel):
-    assignee_id: Optional[UUID] = None
+    assignee_id: UUID | None = None
 
 
 # --- Task Response ---
 class TaskResponseBase(TaskBase):
     id: UUID
     project_id: UUID
-    workspace_id: Optional[UUID] = None
-    sprint_id: Optional[UUID] = None
-    parent_task_id: Optional[UUID] = None
+    workspace_id: UUID | None = None
+    sprint_id: UUID | None = None
+    parent_task_id: UUID | None = None
     status: str
-    assignee_id: Optional[UUID] = None
-    created_by: Optional[UUID] = None
-    actual_hours: Optional[float] = None
-    position: Optional[int] = None
+    assignee_id: UUID | None = None
+    created_by: UUID | None = None
+    actual_hours: float | None = None
+    position: int | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Includes subtasks and dependencies
 class TaskResponse(TaskResponseBase):
-    subtasks: List["TaskResponseBase"] = []
-    dependencies: List["TaskResponseBase"] = []
-    dependent_tasks: List["TaskResponseBase"] = []
+    subtasks: list["TaskResponseBase"] = []
+    dependencies: list["TaskResponseBase"] = []
+    dependent_tasks: list["TaskResponseBase"] = []
     # Not returning full comments in list view to save bandwidth, only in detail if needed
 
 

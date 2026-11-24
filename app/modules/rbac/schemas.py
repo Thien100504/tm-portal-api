@@ -1,26 +1,26 @@
 import uuid
-from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PermissionResponse(BaseModel):
     id: uuid.UUID
     code: str
     module: str
-    description: Optional[str] = None
+    description: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RoleBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class RoleCreate(RoleBase):
     scope: Literal["workspace", "project"] = "project"
-    workspace_id: Optional[uuid.UUID] = None
+    workspace_id: uuid.UUID | None = None
 
 
 class RoleUpdate(RoleBase):
@@ -28,17 +28,16 @@ class RoleUpdate(RoleBase):
 
 
 class RoleUpdatePermissions(BaseModel):
-    permission_ids: List[uuid.UUID]
+    permission_ids: list[uuid.UUID]
 
 
 class RoleResponse(BaseModel):
     id: uuid.UUID
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     scope: str
-    workspace_id: Optional[uuid.UUID] = None
+    workspace_id: uuid.UUID | None = None
     is_system_default: bool
-    permissions: List[PermissionResponse] = []
+    permissions: list[PermissionResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

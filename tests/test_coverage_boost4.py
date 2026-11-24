@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import BackgroundTasks
 
-
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -41,7 +40,7 @@ def _make_task(**kw):
     t.title = kw.get("title", "Test Task")
     t.status = kw.get("status", "todo")
     t.priority = kw.get("priority", "medium")
-    t.assignee_id = kw.get("assignee_id", None)
+    t.assignee_id = kw.get("assignee_id")
     t.created_by = kw.get("created_by", uuid.uuid4())
     t.is_deleted = False
     return t
@@ -125,6 +124,10 @@ async def test_automation_create_valid():
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
 
+    mock_result = MagicMock()
+    mock_result.scalar_one.return_value = 0
+    db.execute = AsyncMock(return_value=mock_result)
+
     data = AutomationRuleCreate(
         name="Auto assign",
         trigger_event="task.created",
@@ -140,6 +143,7 @@ async def test_automation_create_valid():
 @pytest.mark.asyncio
 async def test_automation_create_invalid_trigger():
     from fastapi import HTTPException
+
     from app.modules.automation.manager import automation_manager
     from app.modules.automation.schemas import AutomationRuleCreate
 
@@ -160,6 +164,7 @@ async def test_automation_create_invalid_trigger():
 @pytest.mark.asyncio
 async def test_automation_create_invalid_action():
     from fastapi import HTTPException
+
     from app.modules.automation.manager import automation_manager
     from app.modules.automation.schemas import AutomationRuleCreate
 
@@ -195,6 +200,7 @@ async def test_automation_update_name_and_conditions():
 @pytest.mark.asyncio
 async def test_automation_update_invalid_action():
     from fastapi import HTTPException
+
     from app.modules.automation.manager import automation_manager
     from app.modules.automation.schemas import AutomationRuleUpdate
 
@@ -403,6 +409,7 @@ async def test_admin_update_user_role_found():
 @pytest.mark.asyncio
 async def test_admin_update_user_role_not_found():
     from fastapi import HTTPException
+
     from app.modules.admin.manager import admin_manager
 
     db = AsyncMock()
@@ -429,6 +436,7 @@ async def test_admin_update_user_status():
 @pytest.mark.asyncio
 async def test_admin_update_user_status_not_found():
     from fastapi import HTTPException
+
     from app.modules.admin.manager import admin_manager
 
     db = AsyncMock()
@@ -483,6 +491,7 @@ async def test_admin_list_workspaces_with_data():
 @pytest.mark.asyncio
 async def test_admin_update_user_profile_not_found():
     from fastapi import HTTPException
+
     from app.modules.admin.manager import admin_manager
 
     db = AsyncMock()
@@ -495,6 +504,7 @@ async def test_admin_update_user_profile_not_found():
 @pytest.mark.asyncio
 async def test_admin_update_user_profile_email_conflict():
     from fastapi import HTTPException
+
     from app.modules.admin.manager import admin_manager
 
     db = AsyncMock()
@@ -528,6 +538,7 @@ async def test_admin_update_user_profile_success():
 @pytest.mark.asyncio
 async def test_admin_reset_password_not_found():
     from fastapi import HTTPException
+
     from app.modules.admin.manager import admin_manager
 
     db = AsyncMock()
@@ -560,6 +571,7 @@ async def test_admin_reset_password_success():
 @pytest.mark.asyncio
 async def test_get_current_user_invalid_token():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user
 
     with patch("app.modules.auth.dependencies.decode_token", return_value=None):
@@ -571,14 +583,17 @@ async def test_get_current_user_invalid_token():
 @pytest.mark.asyncio
 async def test_get_current_user_wrong_token_type():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user
 
-    with patch(
-        "app.modules.auth.dependencies.decode_token",
-        return_value={"type": "refresh", "sub": str(uuid.uuid4())},
+    with (
+        patch(
+            "app.modules.auth.dependencies.decode_token",
+            return_value={"type": "refresh", "sub": str(uuid.uuid4())},
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await get_current_user(token="tok", db=AsyncMock())
+        await get_current_user(token="tok", db=AsyncMock())
     assert exc.value.status_code == 401
     assert "invalid_token" in exc.value.detail
 
@@ -586,6 +601,7 @@ async def test_get_current_user_wrong_token_type():
 @pytest.mark.asyncio
 async def test_get_current_user_blacklisted():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user
 
     user_id = uuid.uuid4()
@@ -600,9 +616,9 @@ async def test_get_current_user_blacklisted():
         patch(
             "app.modules.auth.dependencies.aioredis.from_url", return_value=mock_redis
         ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await get_current_user(token="tok", db=AsyncMock())
+        await get_current_user(token="tok", db=AsyncMock())
     assert exc.value.status_code == 401
 
 
@@ -646,9 +662,9 @@ async def test_get_current_user_no_sub():
         patch(
             "app.modules.auth.dependencies.aioredis.from_url", return_value=mock_redis
         ),
+        pytest.raises(Exception),
     ):
-        with pytest.raises(Exception):
-            await get_current_user(token="tok", db=AsyncMock())
+        await get_current_user(token="tok", db=AsyncMock())
 
 
 @pytest.mark.asyncio
@@ -665,9 +681,9 @@ async def test_get_current_user_invalid_uuid():
         patch(
             "app.modules.auth.dependencies.aioredis.from_url", return_value=mock_redis
         ),
+        pytest.raises(Exception),
     ):
-        with pytest.raises(Exception):
-            await get_current_user(token="tok", db=AsyncMock())
+        await get_current_user(token="tok", db=AsyncMock())
 
 
 @pytest.mark.asyncio
@@ -688,14 +704,15 @@ async def test_get_current_user_not_found_in_db():
         patch(
             "app.modules.auth.dependencies.aioredis.from_url", return_value=mock_redis
         ),
+        pytest.raises(Exception),
     ):
-        with pytest.raises(Exception):
-            await get_current_user(token="tok", db=db)
+        await get_current_user(token="tok", db=db)
 
 
 @pytest.mark.asyncio
 async def test_get_current_user_inactive():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user
 
     user_id = uuid.uuid4()
@@ -713,15 +730,16 @@ async def test_get_current_user_inactive():
         patch(
             "app.modules.auth.dependencies.aioredis.from_url", return_value=mock_redis
         ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await get_current_user(token="tok", db=db)
+        await get_current_user(token="tok", db=db)
     assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_require_admin_non_admin():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import require_admin
 
     user = _make_user(system_role="user")
@@ -742,6 +760,7 @@ async def test_require_admin_ok():
 @pytest.mark.asyncio
 async def test_get_current_user_from_token_invalid():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user_from_token
 
     with patch("app.modules.auth.dependencies.decode_token", return_value=None):
@@ -752,54 +771,68 @@ async def test_get_current_user_from_token_invalid():
 @pytest.mark.asyncio
 async def test_get_current_user_from_token_wrong_type():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user_from_token
 
-    with patch(
-        "app.modules.auth.dependencies.decode_token", return_value={"type": "refresh"}
+    with (
+        patch(
+            "app.modules.auth.dependencies.decode_token",
+            return_value={"type": "refresh"},
+        ),
+        pytest.raises(HTTPException),
     ):
-        with pytest.raises(HTTPException):
-            await get_current_user_from_token("tok", AsyncMock())
+        await get_current_user_from_token("tok", AsyncMock())
 
 
 @pytest.mark.asyncio
 async def test_get_current_user_from_token_no_sub():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user_from_token
 
-    with patch(
-        "app.modules.auth.dependencies.decode_token", return_value={"type": "access"}
+    with (
+        patch(
+            "app.modules.auth.dependencies.decode_token",
+            return_value={"type": "access"},
+        ),
+        pytest.raises(HTTPException),
     ):
-        with pytest.raises(HTTPException):
-            await get_current_user_from_token("tok", AsyncMock())
+        await get_current_user_from_token("tok", AsyncMock())
 
 
 @pytest.mark.asyncio
 async def test_get_current_user_from_token_invalid_uuid():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user_from_token
 
-    with patch(
-        "app.modules.auth.dependencies.decode_token",
-        return_value={"type": "access", "sub": "bad-uuid"},
+    with (
+        patch(
+            "app.modules.auth.dependencies.decode_token",
+            return_value={"type": "access", "sub": "bad-uuid"},
+        ),
+        pytest.raises(HTTPException),
     ):
-        with pytest.raises(HTTPException):
-            await get_current_user_from_token("tok", AsyncMock())
+        await get_current_user_from_token("tok", AsyncMock())
 
 
 @pytest.mark.asyncio
 async def test_get_current_user_from_token_user_inactive():
     from fastapi import HTTPException
+
     from app.modules.auth.dependencies import get_current_user_from_token
 
     user = _make_user(is_active=False)
     db = AsyncMock()
     db.get = AsyncMock(return_value=user)
-    with patch(
-        "app.modules.auth.dependencies.decode_token",
-        return_value={"type": "access", "sub": str(user.id)},
+    with (
+        patch(
+            "app.modules.auth.dependencies.decode_token",
+            return_value={"type": "access", "sub": str(user.id)},
+        ),
+        pytest.raises(HTTPException),
     ):
-        with pytest.raises(HTTPException):
-            await get_current_user_from_token("tok", db)
+        await get_current_user_from_token("tok", db)
 
 
 @pytest.mark.asyncio
@@ -1067,10 +1100,11 @@ async def test_sprint_websocket_handler():
 
 @pytest.mark.asyncio
 async def test_request_id_middleware_generates_id():
-    from starlette.testclient import TestClient
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
+    from starlette.testclient import TestClient
+
     from app.middleware.request_id import RequestIDMiddleware
 
     def homepage(request):
@@ -1087,10 +1121,11 @@ async def test_request_id_middleware_generates_id():
 
 @pytest.mark.asyncio
 async def test_request_id_middleware_uses_provided_id():
-    from starlette.testclient import TestClient
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
+    from starlette.testclient import TestClient
+
     from app.middleware.request_id import RequestIDMiddleware
 
     def homepage(request):
@@ -1112,6 +1147,7 @@ async def test_request_id_middleware_uses_provided_id():
 @pytest.mark.asyncio
 async def test_dashboard_admin_stats_non_admin():
     from fastapi import HTTPException
+
     from app.modules.dashboard.manager import dashboard_manager
 
     db = AsyncMock()

@@ -1,35 +1,38 @@
 from __future__ import annotations
+
+from .ai import AIChatMessage, AIChatSession, AIMetric, AISuggestion
+from .automation import AutomationRule
 from .base import Base
-from .user import User
+from .epic import Epic
+from .notification import Notification
+from .pipeline import PipelineExecution
 from .project import Project, ProjectMember
-from .workspace import Workspace, WorkspaceMember
+from .rbac import Permission, Role, RolePermission
 from .sprint import Sprint
 from .task import Comment, Task, TaskDependency
-from .epic import Epic
-from .ai import AISuggestion, AIMetric
-from .pipeline import PipelineExecution
-from .automation import AutomationRule
-from .notification import Notification
-from .rbac import Role, Permission, RolePermission
+from .user import User
+from .workspace import Workspace, WorkspaceMember
 
 __all__ = [
+    "AIChatMessage",
+    "AIChatSession",
+    "AIMetric",
+    "AISuggestion",
+    "AutomationRule",
     "Base",
-    "User",
+    "Comment",
+    "Epic",
+    "Notification",
+    "Permission",
+    "PipelineExecution",
     "Project",
     "ProjectMember",
-    "Workspace",
-    "WorkspaceMember",
+    "Role",
+    "RolePermission",
     "Sprint",
-    "Epic",
     "Task",
     "TaskDependency",
-    "Comment",
-    "AISuggestion",
-    "AIMetric",
-    "PipelineExecution",
-    "AutomationRule",
-    "Notification",
-    "Role",
-    "Permission",
-    "RolePermission",
+    "User",
+    "Workspace",
+    "WorkspaceMember",
 ]

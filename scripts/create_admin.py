@@ -12,13 +12,13 @@ Usage:
 import argparse
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from dotenv import load_dotenv
 from passlib.context import CryptContext
-from sqlalchemy import Column, DateTime, String, Boolean, create_engine, text
+from sqlalchemy import Boolean, Column, DateTime, String, create_engine, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Session
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -59,12 +59,10 @@ class User(Base):
     avatar_url = Column(String(500), nullable=True)
     telegram_chat_id = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
+    failed_login_count = Column(String(10), default="0")
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 def create_admin(email: str, password: str) -> None:
@@ -135,7 +133,7 @@ def main() -> None:
 
     if not email or not password:
         print(
-            "Error: email and password must be provided via arguments or environment variables."
+            "Error: provide the email and password as arguments or environment variables."
         )
         sys.exit(1)
 

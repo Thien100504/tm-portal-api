@@ -27,7 +27,7 @@ services:
     volumes:
       # Persistent data volume — survives container removal
       - postgres_data:/var/lib/postgresql/data
-      # Init script (only runs the first time, when the volume is empty)
+      # Init script (only runs the first time, while the volume is empty)
       - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taskmanager -d taskmanager"]

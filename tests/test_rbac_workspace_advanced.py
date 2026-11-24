@@ -143,6 +143,7 @@ async def test_get_user_permissions_deleted_role():
 @pytest.mark.asyncio
 async def test_update_role_permissions_not_found():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdatePermissions
 
@@ -160,6 +161,7 @@ async def test_update_role_permissions_not_found():
 @pytest.mark.asyncio
 async def test_update_role_permissions_system_role():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdatePermissions
 
@@ -286,6 +288,7 @@ async def test_invite_member_user_exists_not_member():
 @pytest.mark.asyncio
 async def test_invite_member_already_member():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -355,6 +358,7 @@ async def test_invite_member_reinstates_deleted():
 @pytest.mark.asyncio
 async def test_update_workspace_member_not_found():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -401,6 +405,7 @@ async def test_update_workspace_member_success():
 @pytest.mark.asyncio
 async def test_remove_workspace_member_not_found():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()

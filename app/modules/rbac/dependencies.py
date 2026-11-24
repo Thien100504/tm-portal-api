@@ -1,7 +1,8 @@
-from typing import Optional
 import uuid
+
 from fastapi import Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
 from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
@@ -16,8 +17,8 @@ def require_permission(permission_code: str):
     """
 
     async def permission_checker(
-        workspace_id: Optional[uuid.UUID] = Query(None),
-        project_id: Optional[uuid.UUID] = Query(None),
+        workspace_id: uuid.UUID | None = Query(None),
+        project_id: uuid.UUID | None = Query(None),
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_active_user),
     ):

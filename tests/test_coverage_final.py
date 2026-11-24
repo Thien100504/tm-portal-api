@@ -4,6 +4,7 @@ Error-path tests for RBACManager.create_role (database errors).
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
@@ -29,11 +30,15 @@ async def test_rbac_create_role_operational_error():
 
     role_in = RoleCreate(name="test_role", scope="project", workspace_id=uuid.uuid4())
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=True)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=True),
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await rbac_manager.create_role(db, role_in, current_user)
+        await rbac_manager.create_role(db, role_in, current_user)
     assert exc.value.status_code == 503
 
 
@@ -57,8 +62,12 @@ async def test_rbac_create_role_generic_exception():
 
     role_in = RoleCreate(name="other_role", scope="project", workspace_id=uuid.uuid4())
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=True)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=True),
+        ),
+        pytest.raises(RuntimeError),
     ):
-        with pytest.raises(RuntimeError):
-            await rbac_manager.create_role(db, role_in, current_user)
+        await rbac_manager.create_role(db, role_in, current_user)

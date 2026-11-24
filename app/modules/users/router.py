@@ -1,17 +1,16 @@
-from typing import List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
 from app.modules.auth import schemas
-from app.modules.auth.manager import user_manager
 from app.modules.auth.dependencies import get_current_active_user
+from app.modules.auth.manager import user_manager
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/search", response_model=List[schemas.UserResponse])
+@router.get("/search", response_model=list[schemas.UserResponse])
 async def search_users(
     q: str = Query(..., min_length=1),
     db: AsyncSession = Depends(get_db),

@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -134,6 +133,7 @@ async def test_sprint_get_by_project():
 @pytest.mark.asyncio
 async def test_sprint_start_not_in_planning():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()
@@ -147,6 +147,7 @@ async def test_sprint_start_not_in_planning():
 @pytest.mark.asyncio
 async def test_sprint_start_already_active():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()
@@ -233,6 +234,7 @@ async def test_base_manager_remove_not_found():
 @pytest.mark.asyncio
 async def test_dashboard_admin_stats_forbidden():
     from fastapi import HTTPException
+
     from app.modules.dashboard.manager import dashboard_manager
 
     db = AsyncMock()

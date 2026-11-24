@@ -13,7 +13,7 @@ Execution flow:
 
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -22,10 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.automation import AutomationRule
 from app.models.task import Task
 from app.modules.automation.schemas import (
-    AutomationRuleCreate,
-    AutomationRuleUpdate,
     VALID_ACTIONS,
     VALID_TRIGGERS,
+    AutomationRuleCreate,
+    AutomationRuleUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 class AutomationManager:
     async def list_by_project(
         self, db: AsyncSession, project_id: uuid.UUID
-    ) -> List[AutomationRule]:
+    ) -> list[AutomationRule]:
         result = await db.execute(
             select(AutomationRule)
             .where(AutomationRule.project_id == project_id)
@@ -47,9 +47,7 @@ class AutomationManager:
         )
         return list(result.scalars().all())
 
-    async def get(
-        self, db: AsyncSession, rule_id: uuid.UUID
-    ) -> Optional[AutomationRule]:
+    async def get(self, db: AsyncSession, rule_id: uuid.UUID) -> AutomationRule | None:
         return await db.get(AutomationRule, rule_id)
 
     async def create(
@@ -63,6 +61,24 @@ class AutomationManager:
             raise HTTPException(400, "automation.invalid_trigger")
         if data.actions.get("type") not in VALID_ACTIONS:
             raise HTTPException(400, "automation.invalid_action")
+
+        # ── BR-AUTO-02: at most 10 active rules per project ───────────────
+        from sqlalchemy import func as sql_func
+
+        count_result = await db.execute(
+            select(sql_func.count())
+            .select_from(AutomationRule)
+            .where(
+                AutomationRule.project_id == project_id,
+                AutomationRule.is_active.is_(True),
+            )
+        )
+        active_count = count_result.scalar_one()
+        if active_count >= 10:
+            raise HTTPException(
+                status_code=400,
+                detail="automation.rule_limit_exceeded",
+            )
 
         rule = AutomationRule(
             project_id=project_id,
@@ -118,7 +134,7 @@ class AutomationManager:
         project_id: uuid.UUID,
         trigger_event: str,
         task: Task,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> int:
         """
         Fire all active rules for this project/trigger, returning number executed.
@@ -170,9 +186,9 @@ class AutomationManager:
 
 
 def _check_conditions(
-    conditions: Dict[str, Any],
+    conditions: dict[str, Any],
     task: Task,
-    context: Dict[str, Any],
+    context: dict[str, Any],
 ) -> bool:
     """Return True if all specified conditions are satisfied."""
     if "to_status" in conditions:

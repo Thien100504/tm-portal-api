@@ -154,7 +154,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: tm-celery-beat
     restart: unless-stopped
-    command: celery -A app.celery_app beat --loglevel=info
+    command: celery -A app.core.celery beat --loglevel=info
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskmanager}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-taskmanager}
       REDIS_URL: redis://redis:6379/0

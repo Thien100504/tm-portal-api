@@ -9,24 +9,23 @@ Two jobs run side by side:
 This worker runs as a separate process.
 """
 
+import asyncio
 import json
 import logging
 import signal
-import asyncio
-from typing import Any
 import uuid as uuid_lib
+from typing import Any
 
 import pika
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.spec import Basic, BasicProperties
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
-from sqlalchemy import select
-from app.models.task import Task, TaskDependency
 from app.events.publisher import EventPublisher
-
-from app.logging_config import setup_logging, correlation_id_var
+from app.logging_config import correlation_id_var, setup_logging
+from app.models.task import Task, TaskDependency
 
 setup_logging(service_name="automation_worker", level="INFO")
 logger = logging.getLogger("automation_worker")
@@ -130,6 +129,37 @@ async def handle_task_completed(task_id_str: str) -> None:
 
 # ── Feature 2: DB-driven automation rules ────────────────────────────────────
 
+# BR-AUTO-05: TTL of the dedup guard (300 s = 5 minutes, see BR-AUTO-06)
+_AUTOMATION_DEDUP_TTL = 300
+
+
+async def _is_automation_loop(task_id_str: str, trigger_event: str) -> bool:
+    """
+    BR-AUTO-05: check whether (task_id, trigger_event) was already handled by
+    automation in the last 5 minutes. If so it is a loop and is skipped.
+    Redis SET NX (set if not exists) checks and marks atomically.
+    """
+    settings = get_settings()
+    dedup_key = f"automation:dedup:{task_id_str}:{trigger_event}"
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(settings.REDIS_URL)
+        # SET NX: True when the key did not exist (first time), None when it did (loop)
+        is_new = await r.set(dedup_key, "1", nx=True, ex=_AUTOMATION_DEDUP_TTL)
+        await r.aclose()
+        if is_new is None:  # the key exists: this is a loop
+            logger.warning(
+                "🔄 BR-AUTO-05: Automation loop detected for task=%s event=%s — skipping",
+                task_id_str,
+                trigger_event,
+            )
+            return True
+        return False
+    except Exception:
+        logger.debug("Redis dedup check skipped (connection unavailable)")
+        return False  # fail-open: if Redis is down, rules still run
+
 
 async def handle_automation_rules(
     routing_key: str,
@@ -143,6 +173,8 @@ async def handle_automation_rules(
       task.updated    → task.priority_changed (when the context has old_priority)
       task.completed  → task.status_changed (new_status=done)
       task.assigned   → task.assigned
+
+    BR-AUTO-05: infinite loops are prevented by a Redis dedup guard.
     """
     from app.modules.automation.manager import automation_manager
 
@@ -165,6 +197,10 @@ async def handle_automation_rules(
         task_id = uuid_lib.UUID(task_id_str)
     except ValueError:
         logger.error("Invalid task_id: %s", task_id_str)
+        return
+
+    # ── BR-AUTO-05: infinite loop guard ─────────────────────────────────────
+    if await _is_automation_loop(task_id_str, trigger_event):
         return
 
     async with AsyncSessionLocal() as db:

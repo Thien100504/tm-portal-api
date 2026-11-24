@@ -1,17 +1,19 @@
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import String, ForeignKey, Boolean, DateTime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from .user import User
     from .project import Project
     from .rbac import Role
+    from .user import User
 
 
 class Workspace(UUIDMixin, TimestampMixin, Base):
@@ -42,11 +44,11 @@ class Workspace(UUIDMixin, TimestampMixin, Base):
     )
 
     # Relationships
-    owner: Mapped["User"] = relationship("User", foreign_keys=[owner_id])
-    projects: Mapped[List["Project"]] = relationship(
+    owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
+    projects: Mapped[list[Project]] = relationship(
         "Project", back_populates="workspace", cascade="all, delete-orphan"
     )
-    memberships: Mapped[List["WorkspaceMember"]] = relationship(
+    memberships: Mapped[list[WorkspaceMember]] = relationship(
         "WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan"
     )
 
@@ -60,22 +62,22 @@ class WorkspaceMember(TimestampMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    role_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    role_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("roles.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships
-    workspace: Mapped["Workspace"] = relationship(
+    workspace: Mapped[Workspace] = relationship(
         "Workspace", back_populates="memberships"
     )
-    user: Mapped["User"] = relationship("User")
-    role: Mapped[Optional["Role"]] = relationship("Role")
+    user: Mapped[User] = relationship("User")
+    role: Mapped[Role | None] = relationship("Role")
 
     # Soft Delete
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, server_default="false", default=False, nullable=False
     )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -87,7 +89,7 @@ class WorkspaceInvitation(UUIDMixin, TimestampMixin, Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     email: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    role_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    role_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("roles.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(
@@ -102,10 +104,10 @@ class WorkspaceInvitation(UUIDMixin, TimestampMixin, Base):
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, server_default="false", default=False, nullable=False
     )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
     # Relationships
-    workspace: Mapped["Workspace"] = relationship("Workspace")
-    role: Mapped[Optional["Role"]] = relationship("Role")
+    workspace: Mapped[Workspace] = relationship("Workspace")
+    role: Mapped[Role | None] = relationship("Role")

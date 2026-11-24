@@ -8,25 +8,26 @@ How to run:
     python -m app.workers.ai_worker
 """
 
+import asyncio
 import json
 import logging
 import signal
-from typing import Any
-import asyncio
 import uuid
-import redis.asyncio as redis
+from typing import Any
 
 import pika
+import redis.asyncio as redis
+from openai import OpenAI
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.spec import Basic, BasicProperties
-from openai import OpenAI
+from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
+from app.logging_config import correlation_id_var, setup_logging
+from app.models.project import Project
 from app.models.task import Task
-from sqlalchemy import select, func
-
-from app.logging_config import setup_logging, correlation_id_var
+from app.models.workspace import Workspace
 
 # Module-level event loop reference – assigned in main() before use
 _worker_loop: asyncio.AbstractEventLoop | None = None
@@ -36,6 +37,8 @@ setup_logging(service_name="ai_worker", level="INFO")
 logger = logging.getLogger("ai_worker")
 
 settings = get_settings()
+
+from datetime import UTC
 
 from app.models.ai import AIMetric
 
@@ -176,8 +179,9 @@ Example:
             titles.append(title)
 
     async with AsyncSessionLocal() as db:
+        from datetime import datetime
+
         from sqlalchemy import update
-        from datetime import datetime, timezone
 
         actor_uuid = uuid.UUID(actor_id) if actor_id else None
 
@@ -188,6 +192,14 @@ Example:
             return None
         parent_project_id = parent_task.project_id
         parent_sprint_id = parent_task.sprint_id
+
+        # Personal workspaces: AI subtasks are assigned to the workspace owner
+        auto_assignee_id = None
+        project = await db.get(Project, parent_project_id)
+        if project and project.workspace_id:
+            workspace = await db.get(Workspace, project.workspace_id)
+            if workspace and workspace.type == "personal":
+                auto_assignee_id = workspace.owner_id
 
         # Replace only the subtasks an earlier AI breakdown created that are still
         # "todo"; subtasks written by people are kept
@@ -213,7 +225,7 @@ Example:
                 )
                 .values(
                     is_deleted=True,
-                    deleted_at=datetime.now(timezone.utc),
+                    deleted_at=datetime.now(UTC),
                     deleted_by=actor_uuid,
                 )
             )
@@ -238,6 +250,7 @@ Example:
                 priority="medium",
                 position=max_pos + i + 1,
                 created_by=uuid.UUID(actor_id) if actor_id else None,
+                assignee_id=auto_assignee_id,
             )
             db.add(new_task)
             await db.flush()

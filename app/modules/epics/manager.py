@@ -1,5 +1,5 @@
 import uuid
-from typing import List
+from datetime import UTC
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from app.modules.epics.schemas import EpicCreate, EpicUpdate
 class EpicManager(BaseManager[Epic, EpicCreate, EpicUpdate]):
     async def get_epics_by_workspace(
         self, db: AsyncSession, workspace_id: uuid.UUID
-    ) -> List[Epic]:
+    ) -> list[Epic]:
         query = (
             select(self.model)
             .where(
@@ -26,7 +26,7 @@ class EpicManager(BaseManager[Epic, EpicCreate, EpicUpdate]):
 
     async def get_epics_by_project(
         self, db: AsyncSession, project_id: uuid.UUID
-    ) -> List[Epic]:
+    ) -> list[Epic]:
         query = (
             select(self.model)
             .where(
@@ -42,10 +42,10 @@ class EpicManager(BaseManager[Epic, EpicCreate, EpicUpdate]):
         self, db: AsyncSession, epic: Epic, user_id: uuid.UUID
     ) -> None:
         """Mark the epic deleted; tasks keep their epic_id for history."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         epic.is_deleted = True
-        epic.deleted_at = datetime.now(timezone.utc)
+        epic.deleted_at = datetime.now(UTC)
         epic.deleted_by = user_id
         await db.flush()
 

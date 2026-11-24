@@ -1,5 +1,3 @@
-from typing import List, Optional
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +13,7 @@ def escape_like(value: str) -> str:
 
 
 class UserManager(BaseManager[User, UserCreate, UserUpdate]):
-    async def get_by_email(self, db: AsyncSession, email: str) -> Optional[User]:
+    async def get_by_email(self, db: AsyncSession, email: str) -> User | None:
         """Get a User by email"""
         stmt = select(self.model).where(self.model.email == email)
         result = await db.execute(stmt)
@@ -59,7 +57,7 @@ class UserManager(BaseManager[User, UserCreate, UserUpdate]):
 
         return db_user
 
-    async def search_users(self, db: AsyncSession, query: str) -> List[User]:
+    async def search_users(self, db: AsyncSession, query: str) -> list[User]:
         """Search users by email or full_name"""
         stmt = (
             select(self.model)

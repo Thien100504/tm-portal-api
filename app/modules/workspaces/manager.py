@@ -1,11 +1,11 @@
 import logging
+
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 logger = logging.getLogger(__name__)
-from typing import List, Dict
-from uuid import UUID
-from datetime import datetime, timedelta, timezone
 import secrets
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select, update
@@ -13,16 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.project import Project, ProjectMember
-from app.models.workspace import Workspace, WorkspaceMember, WorkspaceInvitation
-from app.models.user import User
 from app.models.rbac import Role
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceInvitation, WorkspaceMember
+from app.modules.rbac.manager import rbac_manager
 from app.modules.workspaces.schemas import (
     WorkspaceCreate,
-    WorkspaceUpdate,
     WorkspaceMemberInvite,
     WorkspaceMemberUpdate,
+    WorkspaceUpdate,
 )
-from app.modules.rbac.manager import rbac_manager
 
 
 class WorkspaceManager:
@@ -80,7 +80,7 @@ class WorkspaceManager:
 
     async def list_workspaces(
         self, db: AsyncSession, current_user: User
-    ) -> List[Workspace]:
+    ) -> list[Workspace]:
         # Workspace ids of the projects the user is a member of
         proj_stmt = (
             select(Project.workspace_id)
@@ -265,8 +265,9 @@ class WorkspaceManager:
     async def _broadcast_workspace_update(self, db: AsyncSession, workspace_id: UUID):
         """Publish workspace_updated to every member's personal notification channel."""
         try:
-            from app.modules.websocket.manager import _redis_pool
             import json as _json
+
+            from app.modules.websocket.manager import _redis_pool
 
             if _redis_pool is None:
                 return
@@ -337,7 +338,7 @@ class WorkspaceManager:
 
     async def get_workspace_members(
         self, db: AsyncSession, workspace_id: UUID, current_user: User
-    ) -> List[WorkspaceMember]:
+    ) -> list[WorkspaceMember]:
         # Validate access
         await self.get_workspace(db, workspace_id, current_user)
 
@@ -351,6 +352,7 @@ class WorkspaceManager:
                 selectinload(WorkspaceMember.user),
                 selectinload(WorkspaceMember.role).selectinload(Role.permissions),
             )
+            .execution_options(populate_existing=True)
         )
 
         res = await db.execute(stmt)
@@ -358,7 +360,7 @@ class WorkspaceManager:
 
     async def get_workspace_invitations(
         self, db: AsyncSession, workspace_id: UUID, current_user: User
-    ) -> List[WorkspaceInvitation]:
+    ) -> list[WorkspaceInvitation]:
         await self._check_workspace_owner(db, workspace_id, current_user.id)
 
         stmt = (
@@ -368,7 +370,10 @@ class WorkspaceManager:
                 WorkspaceInvitation.is_deleted.is_(False),
                 WorkspaceInvitation.status == "pending",
             )
-            .options(selectinload(WorkspaceInvitation.role))
+            .options(
+                selectinload(WorkspaceInvitation.role).selectinload(Role.permissions)
+            )
+            .execution_options(populate_existing=True)
         )
 
         res = await db.execute(stmt)
@@ -380,7 +385,7 @@ class WorkspaceManager:
         workspace_id: UUID,
         invite_in: WorkspaceMemberInvite,
         current_user: User,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         ws = await self._check_workspace_owner(db, workspace_id, current_user.id)
         if ws.type == "personal":
             raise HTTPException(
@@ -421,7 +426,7 @@ class WorkspaceManager:
                 email=invite_in.email,
                 role_id=invite_in.role_id,
                 token=secrets.token_urlsafe(32),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
             )
             db.add(inv)
 
@@ -515,7 +520,7 @@ class WorkspaceManager:
                 detail="workspace.member_not_found",
             )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mem.is_deleted = True
         mem.deleted_at = now
         # Projects the member owns in this workspace go to the workspace owner,
@@ -571,7 +576,7 @@ class WorkspaceManager:
             )
 
         inv.is_deleted = True
-        inv.deleted_at = datetime.utcnow()
+        inv.deleted_at = datetime.now(UTC)
         inv.status = "cancelled"
         try:
             await db.commit()

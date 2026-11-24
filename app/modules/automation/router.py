@@ -13,31 +13,33 @@ Rule-scoped (detail_router):
 """
 
 import uuid
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.user import User
 from app.models.automation import AutomationRule
+from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.projects.dependencies import get_project_access, get_project_pm_access
 from app.modules.automation.manager import automation_manager
 from app.modules.automation.schemas import (
     AutomationRuleCreate,
     AutomationRuleResponse,
     AutomationRuleUpdate,
 )
+from app.modules.projects.dependencies import get_project_access, get_project_pm_access
+from app.modules.workspaces.features import require_feature
 
-router = APIRouter(tags=["automation"])
+router = APIRouter(
+    tags=["automations"], dependencies=[Depends(require_feature("enable_automation"))]
+)
 
 
 # ── Project-scoped ────────────────────────────────────────────────────────────
 
 
 @router.get(
-    "/projects/{project_id}/automations", response_model=List[AutomationRuleResponse]
+    "/projects/{project_id}/automations", response_model=list[AutomationRuleResponse]
 )
 async def list_rules(
     project_id: uuid.UUID,

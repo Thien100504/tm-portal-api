@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
@@ -30,7 +30,7 @@ class DashboardManager:
         workspace_id: uuid.UUID | None = None,
     ) -> PersonalStats:
         user_id = current_user.id
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         week_ago = now - timedelta(days=7)
         next_week = now + timedelta(days=7)
 
@@ -352,7 +352,7 @@ class DashboardManager:
                 detail="admin.stats_forbidden",
             )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         week_ago = now - timedelta(days=7)
 
         total_users = await db.scalar(select(func.count(User.id))) or 0

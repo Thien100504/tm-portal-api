@@ -1,19 +1,20 @@
 import logging
+
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 logger = logging.getLogger(__name__)
-from typing import Optional, Set, List
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from fastapi import HTTPException, status
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.project import Project, ProjectMember
-from app.models.workspace import Workspace, WorkspaceMember
-from app.models.rbac import Role, Permission
+from app.models.rbac import Permission, Role
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.modules.rbac.schemas import RoleCreate, RoleUpdate, RoleUpdatePermissions
 
 
@@ -23,8 +24,14 @@ class RBACManager:
         db: AsyncSession,
         user_id: uuid.UUID,
         workspace_id: uuid.UUID,
-        project_id: Optional[uuid.UUID] = None,
-    ) -> Set[str]:
+        project_id: uuid.UUID | None = None,
+    ) -> set[str]:
+        # System admins bypass RBAC — return all permission codes
+        user = await db.get(User, user_id)
+        if user and user.system_role == "admin":
+            all_perm_rows = await db.execute(select(Permission.code))
+            return set(all_perm_rows.scalars().all())
+
         permissions = set()
 
         # Workspace Level
@@ -69,9 +76,9 @@ class RBACManager:
     async def resolve_workspace(
         self,
         db: AsyncSession,
-        workspace_id: Optional[uuid.UUID] = None,
-        project_id: Optional[uuid.UUID] = None,
-    ) -> Optional[uuid.UUID]:
+        workspace_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
+    ) -> uuid.UUID | None:
         """
         Workspace that a permission check applies to.
 
@@ -95,8 +102,8 @@ class RBACManager:
         db: AsyncSession,
         user_id: uuid.UUID,
         permission_code: str,
-        workspace_id: Optional[uuid.UUID] = None,
-        project_id: Optional[uuid.UUID] = None,
+        workspace_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> bool:
         workspace_id = await self.resolve_workspace(db, workspace_id, project_id)
         if not workspace_id:
@@ -117,7 +124,7 @@ class RBACManager:
         )
 
     async def _require_role_admin(
-        self, db: AsyncSession, user: User, workspace_id: Optional[uuid.UUID]
+        self, db: AsyncSession, user: User, workspace_id: uuid.UUID | None
     ) -> None:
         """Workspace roles need workspace admin rights; global roles need a system admin."""
         if workspace_id:
@@ -132,8 +139,8 @@ class RBACManager:
             )
 
     async def get_roles(
-        self, db: AsyncSession, scope: str, workspace_id: Optional[uuid.UUID] = None
-    ) -> List[Role]:
+        self, db: AsyncSession, scope: str, workspace_id: uuid.UUID | None = None
+    ) -> list[Role]:
         conditions = [Role.scope == scope, Role.is_deleted.is_(False)]
         if workspace_id:
             conditions.append(
@@ -313,7 +320,7 @@ class RBACManager:
         await self._require_role_admin(db, current_user, role.workspace_id)
 
         role.is_deleted = True
-        role.deleted_at = datetime.now(timezone.utc)
+        role.deleted_at = datetime.now(UTC)
         try:
             await db.commit()
         except IntegrityError as e:
