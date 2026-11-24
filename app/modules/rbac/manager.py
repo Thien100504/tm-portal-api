@@ -108,7 +108,7 @@ class RBACManager:
         )
         return workspace_owner == user_id
 
-    async def _system_role_permissions(self, db: AsyncSession, name: str) -> Set[str]:
+    async def _system_role_permissions(self, db: AsyncSession, name: str) -> set[str]:
         role = await db.scalar(
             select(Role)
             .where(

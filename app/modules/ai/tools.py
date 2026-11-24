@@ -195,6 +195,20 @@ TOOLS_SCHEMA = [
 ]
 
 
+# Permission each writing tool needs (read-only tools are not listed)
+TOOL_PERMISSIONS = {
+    "create_task": "task.create",
+    "update_task": "task.update",
+    "restore_task": "task.update",
+    "delete_tasks": "task.delete",
+    "create_sprint": "sprint.manage",
+    "start_sprint": "sprint.manage",
+    "complete_sprint": "sprint.manage",
+    "toggle_automation": "project.settings",
+    "delete_automation": "project.settings",
+}
+
+
 async def dispatch_tool_call(
     tool_call: dict,
     project_id: uuid.UUID,
@@ -212,6 +226,18 @@ async def dispatch_tool_call(
         args = json.loads(args_str)
     except Exception:
         return "Error: Cannot parse parameters."
+
+    # The assistant acts for the user: every write needs the same permission as
+    # doing it by hand (chatting only requires read access to the project)
+    required = TOOL_PERMISSIONS.get(name)
+    if required:
+        from app.modules.rbac.manager import rbac_manager
+
+        allowed = await rbac_manager.check_permission(
+            db, current_user.id, required, project_id=project_id
+        )
+        if not allowed:
+            return f"Error: you do not have the '{required}' permission needed for this action."
 
     if name == "create_task":
         try:

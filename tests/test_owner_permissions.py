@@ -25,6 +25,9 @@ def _db(project_member, owners=(None, None)):
         result.scalars.return_value.first.return_value = row
         results.append(result)
     db = MagicMock()
+    db.get = AsyncMock(
+        return_value=SimpleNamespace(system_role="user")
+    )  # not a system admin
     db.execute = AsyncMock(side_effect=results)
     db.scalar = AsyncMock(side_effect=list(owners))
     return db

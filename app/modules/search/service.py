@@ -12,15 +12,10 @@ from app.models.workspace import WorkspaceMember
 async def global_search(
     db: AsyncSession, q: str, workspace_id: uuid.UUID, user_id: uuid.UUID
 ):
-    # Verify caller is a member of this workspace
-    is_member = await db.scalar(
-        select(WorkspaceMember.id).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-            WorkspaceMember.is_deleted.is_(False),
-        )
-    )
-    if not is_member:
+    # Only the workspace owner and active members can search it
+    from app.modules.projects.manager import project_manager
+
+    if not await project_manager.is_workspace_member(db, workspace_id, user_id):
         return {"projects": [], "tasks": [], "users": []}
 
     search_term = f"%{q}%"
