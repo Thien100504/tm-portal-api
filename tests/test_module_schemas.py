@@ -6,20 +6,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from app.modules.tasks.schemas import (
-    CommentCreate,
-    TaskCreate,
-    TaskDependencyCreate,
-    TaskUpdate,
-)
-from app.modules.sprints.schemas import SprintCreate, SprintUpdate
-from app.modules.workspaces.schemas import (
-    WorkspaceCreate,
-    WorkspaceMemberInvite,
-    WorkspaceMemberUpdate,
-    WorkspaceUpdate,
-)
-from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
+from app.config import get_settings
 from app.modules.dashboard.schemas import (
     AdminStats,
     BlockedTask,
@@ -31,8 +18,20 @@ from app.modules.dashboard.schemas import (
     TeamMemberWorkload,
     UpcomingTask,
 )
-from app.config import get_settings
-
+from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
+from app.modules.sprints.schemas import SprintCreate, SprintUpdate
+from app.modules.tasks.schemas import (
+    CommentCreate,
+    TaskCreate,
+    TaskDependencyCreate,
+    TaskUpdate,
+)
+from app.modules.workspaces.schemas import (
+    WorkspaceCreate,
+    WorkspaceMemberInvite,
+    WorkspaceMemberUpdate,
+    WorkspaceUpdate,
+)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 

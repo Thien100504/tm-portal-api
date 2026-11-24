@@ -1,28 +1,30 @@
-import uuid
-import asyncio
 import logging
-from typing import List, Optional, Any, Dict, Union
+import uuid
+from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, update as sa_update, text
+from sqlalchemy import func, select, text
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, noload
+from sqlalchemy.orm import noload, selectinload
 
 logger = logging.getLogger(__name__)
 
+from datetime import UTC
+
 from app.core.base_manager import BaseManager
-from app.models.task import Task, TaskDependency, Comment
-from app.models.sprint import Sprint
 from app.models.project import ProjectMember
+from app.models.sprint import Sprint
+from app.models.task import Comment, Task, TaskDependency
 from app.modules.tasks.schemas import TaskCreate, TaskUpdate
 
 
 def _utc(value):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if isinstance(value, datetime) and value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 
@@ -31,10 +33,10 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
-        workspace_id: Optional[uuid.UUID],
-        sprint_id: Optional[uuid.UUID] = None,
-        epic_id: Optional[uuid.UUID] = None,
-        assignee_id: Optional[uuid.UUID] = None,
+        workspace_id: uuid.UUID | None,
+        sprint_id: uuid.UUID | None = None,
+        epic_id: uuid.UUID | None = None,
+        assignee_id: uuid.UUID | None = None,
     ) -> None:
         """Sprints, epics and assignees must belong to the task's project."""
         if sprint_id:
@@ -78,7 +80,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             raise HTTPException(status_code=status_code, detail=error)
         return other
 
-    async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID) -> Optional[Task]:
+    async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID) -> Task | None:
         """
         Task details: loads subtasks, dependencies and dependent_tasks.
         Used by TaskDetailModal.
@@ -102,7 +104,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
 
     async def get_tasks_by_project(
         self, db: AsyncSession, project_id: uuid.UUID
-    ) -> List[Task]:
+    ) -> list[Task]:
         """
         Tasks for the Kanban board.
         Only loads subtasks (needed for the progress bar), NOT dependencies,
@@ -191,7 +193,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         db: AsyncSession,
         *,
         db_obj: Task,
-        obj_in: Union[TaskUpdate, Dict[str, Any]],
+        obj_in: TaskUpdate | dict[str, Any],
     ) -> Task:
         # The new deadline if it is being updated
         new_deadline = None
@@ -225,9 +227,24 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             for st_deadline in subtasks_res.scalars():
                 if _utc(new_deadline) < _utc(st_deadline):
                     raise HTTPException(
-                        status_code=400,
-                        detail="task.error_parent_deadline_earlier_than_subtask",
+                        status_code=400, detail="task.error_subtask_deadline"
                     )
+            else:
+                # Parent deadline must not be earlier than any subtask deadline
+                subtasks_result = await db.execute(
+                    select(Task).where(
+                        Task.parent_task_id == db_obj.id,
+                        Task.is_deleted.is_(False),
+                        Task.deadline.is_not(None),
+                    )
+                )
+                subtasks = subtasks_result.scalars().all()
+                for sub in subtasks:
+                    if sub.deadline and new_deadline < sub.deadline:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="task.error_parent_deadline_before_subtask",
+                        )
 
         # ── Cascade sprint_id & epic_id → subtasks ──────────────────────────────
         # When a parent moves to another sprint/epic, its subtasks follow.
@@ -320,7 +337,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         db: AsyncSession,
         task: Task,
         new_status: str,
-        insert_after_id: Optional[uuid.UUID] = None,
+        insert_after_id: uuid.UUID | None = None,
         override: bool = False,
     ) -> Task:
         # When the column changes, update the status and cascade
@@ -384,13 +401,13 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
                 query, {"start_id": str(depends_on_id), "target_id": str(task_id)}
             )
             return res.scalar() is not None
-        except (OperationalError, asyncio.TimeoutError):
+        except (TimeoutError, OperationalError):
             logger.exception("DB Timeout or Error in check_circular_dependency")
             raise HTTPException(status_code=503, detail="server.db_unavailable")
 
     async def check_and_unblock_dependents(
         self, db: AsyncSession, completed_task_id: uuid.UUID
-    ) -> List[Task]:
+    ) -> list[Task]:
         """
         Scan the tasks that depend on the task that was just completed.
         Those no longer blocked by any other task
@@ -421,7 +438,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
 
     async def get_impacted_descendants(
         self, db: AsyncSession, task_id: uuid.UUID
-    ) -> List[Task]:
+    ) -> list[Task]:
         query = text("""
             WITH RECURSIVE deps AS (
                 SELECT task_id FROM task_dependencies WHERE depends_on_id = :start_id
@@ -435,7 +452,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         try:
             res = await db.execute(query, {"start_id": str(task_id)})
             descendant_ids = [row[0] for row in res.all()]
-        except (OperationalError, asyncio.TimeoutError):
+        except (TimeoutError, OperationalError):
             logger.exception("DB Timeout or Error in get_impacted_descendants")
             return []
         if not descendant_ids:
@@ -531,7 +548,7 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         await db.flush()
         return comment
 
-    async def get_comments(self, db: AsyncSession, task_id: uuid.UUID) -> List[Comment]:
+    async def get_comments(self, db: AsyncSession, task_id: uuid.UUID) -> list[Comment]:
         query = (
             select(Comment)
             .where(Comment.task_id == task_id)

@@ -9,7 +9,6 @@ Handlers:
 """
 
 import logging
-from typing import Optional
 
 from fastapi import BackgroundTasks
 from sqlalchemy import select
@@ -196,7 +195,7 @@ class SprintEventService:
         event_type: str,
         sprint,
         actor: User,
-        extra: Optional[dict] = None,
+        extra: dict | None = None,
     ):
         ctx = EventContext(
             db=db,

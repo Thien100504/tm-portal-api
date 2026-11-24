@@ -4,9 +4,9 @@ Coverage boost — final push to 80%.
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import BackgroundTasks
-
 
 # ═══════════════════════════════════════════════════════════════════
 # BASE MANAGER — create / update
@@ -254,13 +254,17 @@ async def test_rbac_manager_update_role():
 
     update = RoleUpdate(name="senior_dev")
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=True)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=True),
+        ),
+        patch.object(db, "commit", new=AsyncMock()),
     ):
-        with patch.object(db, "commit", new=AsyncMock()):
-            result_mock2 = MagicMock()
-            result_mock2.scalar_one_or_none.return_value = role
-            db.execute = AsyncMock(return_value=result_mock2)
-            db.refresh = AsyncMock()
-            result = await rbac_manager.update_role(db, role.id, update, current_user)
+        result_mock2 = MagicMock()
+        result_mock2.scalar_one_or_none.return_value = role
+        db.execute = AsyncMock(return_value=result_mock2)
+        db.refresh = AsyncMock()
+        result = await rbac_manager.update_role(db, role.id, update, current_user)
     assert result is not None

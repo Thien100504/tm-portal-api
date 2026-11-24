@@ -4,9 +4,9 @@ Final coverage push — 10+ statements to cross 80%.
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import BackgroundTasks
-
 
 # ═══════════════════════════════════════════════════════════════════
 # TASK EVENTS — RabbitMQHandler branches (user=None, telegram_chat_id)
@@ -171,9 +171,10 @@ async def test_tasks_manager_update_with_schema_sprint():
 @pytest.mark.asyncio
 async def test_automation_manager_update_invalid_action():
     """Covers line 94 — invalid action raises 400."""
+    from fastapi import HTTPException
+
     from app.modules.automation.manager import AutomationManager
     from app.modules.automation.schemas import AutomationRuleUpdate
-    from fastapi import HTTPException
 
     mgr = AutomationManager()
     db = AsyncMock()

@@ -1,5 +1,4 @@
-from typing import Optional
-
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,12 +7,12 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.modules.auth import schemas, security
-from app.modules.auth.manager import user_manager
 from app.modules.auth.dependencies import (
     blacklist_token,
     optional_oauth2_scheme,
     revoke_once,
 )
+from app.modules.auth.manager import user_manager
 
 router = APIRouter()
 settings = get_settings()
@@ -44,21 +43,61 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Log in with email and password to obtain an Access Token and a Refresh Token.
-    Uses form-data (compatible with Swagger UI's OAuth2 flow).
-    Note: form_data.username is actually the email.
+    Sign in with email and password to get an access token and a refresh token.
+    Uses form data (compatible with the OAuth2 flow of Swagger UI).
+    Note: form_data.username is the email.
+
+    BR-AUTH-05: lock the account for 15 minutes after 5 failed sign-ins in a row.
     """
-    user = await user_manager.get_by_email(db, email=form_data.username)
+    email = form_data.username
+    lockout_key = f"login:failed:{email}"
+
+    # ── BR-AUTH-05: check the lockout before querying the DB ───────────
+    try:
+        r = aioredis.from_url(settings.REDIS_URL)
+        attempts = await r.get(lockout_key)
+        await r.aclose()
+        if attempts and int(attempts) >= 5:
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail="auth.account_locked",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # fail-open: if Redis is down, sign-in still works
+
+    user = await user_manager.get_by_email(db, email=email)
     if not user or not security.verify_password(form_data.password, user.password_hash):
+        # ── Count the failed sign-in ─────────────────────────────────────
+        try:
+            r = aioredis.from_url(settings.REDIS_URL)
+            # Atomic: SET NX EX for first attempt to avoid incr+expire race
+            set_result = await r.set(lockout_key, 1, nx=True, ex=900)
+            if set_result is None:
+                # Key already exists — just increment (TTL already set)
+                await r.incr(lockout_key)
+            await r.aclose()
+        except Exception:
+            pass  # fail-open
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="auth.invalid_credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="auth.inactive_user"
         )
+
+    # ── Successful sign-in → reset the failure counter ────────────────
+    try:
+        r = aioredis.from_url(settings.REDIS_URL)
+        await r.delete(lockout_key)
+        await r.aclose()
+    except Exception:
+        pass  # fail-open
 
     return {
         "access_token": security.create_access_token(user.id),
@@ -75,14 +114,17 @@ async def refresh_token(
     """
     Use the Refresh Token to obtain a new set of JWTs.
     """
-    payload = security.decode_token(request.refresh_token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="auth.invalid_token",
-        )
+    try:
+        r = aioredis.from_url(settings.REDIS_URL)
+        is_blacklisted = await r.exists(f"refresh_blacklist:{request.refresh_token}")
+        await r.aclose()
+    except Exception:
+        is_blacklisted = False  # fail-open: Redis down → allow refresh
+    if is_blacklisted:
+        raise HTTPException(status_code=401, detail="auth.invalid_token")
 
-    if payload.get("type") != "refresh":
+    payload = security.decode_token(request.refresh_token)
+    if not payload or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="auth.invalid_token",
@@ -95,7 +137,6 @@ async def refresh_token(
             detail="auth.invalid_token",
         )
 
-    # Load the user from the DB to check active status
     from uuid import UUID
 
     try:
@@ -129,8 +170,8 @@ async def refresh_token(
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(
-    body: Optional[schemas.LogoutRequest] = None,
-    token: Optional[str] = Depends(optional_oauth2_scheme),
+    body: schemas.LogoutRequest | None = None,
+    token: str | None = Depends(optional_oauth2_scheme),
 ):
     """
     Log out — blacklist the current access token (if sent) and the refresh token

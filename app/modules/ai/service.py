@@ -6,8 +6,7 @@ Collects project data → computes the health score and insights → (optionally
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -46,7 +45,7 @@ async def get_ai_insights(
 ) -> AIInsightsResponse:
     """Compute the AI insights of a project. lang: 'vi' | 'en'"""
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # ── 1. Project info & Workspace type ──────────────────────────────
     from app.models.workspace import Workspace
@@ -139,8 +138,8 @@ async def get_ai_insights(
         )
     ).scalar_one_or_none()
 
-    active_sprint_insight: Optional[ActiveSprintInsight] = None
-    active_sprint_rate: Optional[float] = None
+    active_sprint_insight: ActiveSprintInsight | None = None
+    active_sprint_rate: float | None = None
 
     if active_sprint_row:
         sprint_total = (
@@ -169,19 +168,19 @@ async def get_ai_insights(
         active_sprint_rate = sprint_rate
 
         # Days left
-        days_remaining: Optional[int] = None
+        days_remaining: int | None = None
         is_on_track = True
         if active_sprint_row.end_date:
             end = datetime.combine(
                 active_sprint_row.end_date, datetime.min.time()
-            ).replace(tzinfo=timezone.utc)
+            ).replace(tzinfo=UTC)
             days_remaining = max(0, (end - now).days)
 
             # On track: once > 50% of the time has passed, > 50% of tasks must be done
             if active_sprint_row.start_date:
                 start = datetime.combine(
                     active_sprint_row.start_date, datetime.min.time()
-                ).replace(tzinfo=timezone.utc)
+                ).replace(tzinfo=UTC)
                 total_days = max(1, (end - start).days)
                 elapsed_pct = min(100, (now - start).days / total_days * 100)
                 if elapsed_pct > 50 and sprint_rate < elapsed_pct * 0.7:
@@ -384,7 +383,7 @@ def _compute_health_score(
     overdue_tasks: int,
     blocked_tasks: int,
     has_active_sprint: bool,
-    sprint_rate: Optional[float],
+    sprint_rate: float | None,
     sprint_on_track: bool,
     workload_counts: list[int],
 ) -> int:
@@ -436,8 +435,8 @@ def _insight(
     card_type: str,
     title_key: str,
     description_key: str,
-    metric: Optional[str] = None,
-    description_params: Optional[dict] = None,
+    metric: str | None = None,
+    description_params: dict | None = None,
 ) -> "InsightCard":
     """
     Helper: build an InsightCard where title/description fall back to the i18n key itself.
@@ -463,7 +462,7 @@ def _build_insights(
     blocked_tasks: int,
     in_progress_tasks: int,
     has_active_sprint: bool,
-    active_sprint: Optional[ActiveSprintInsight],
+    active_sprint: ActiveSprintInsight | None,
     team_insights: list[TeamMemberInsight],
     completion_rate: float,
 ) -> list[InsightCard]:
@@ -637,7 +636,7 @@ async def _call_ai(
     done_tasks: int,
     overdue_tasks: int,
     blocked_tasks: int,
-    active_sprint: Optional[ActiveSprintInsight],
+    active_sprint: ActiveSprintInsight | None,
     insights: list[InsightCard],
     team_insights: list[TeamMemberInsight],
     is_personal: bool = False,
@@ -797,8 +796,10 @@ Reply EXACTLY in the following JSON format (no markdown, no extra text outside J
             )
             model = "meta/llama-3.1-8b-instruct"
         else:
-            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            model = "gpt-4o-mini"
+            client = AsyncOpenAI(
+                api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_BASE_URL
+            )
+            model = settings.OPENAI_MODEL_NAME
 
         t0 = _time.monotonic()
         response = await client.chat.completions.create(
@@ -853,6 +854,335 @@ Reply EXACTLY in the following JSON format (no markdown, no extra text outside J
 # ──────────────────────────────────────────────────────────────────────────────
 # AI Metrics
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+async def chat_with_project(
+    db: AsyncSession,
+    project_id: UUID,
+    session_id: UUID,
+    user_content: str,
+    current_user: "User",
+    lang: str = "vi",
+):
+    """
+    Streaming chat endpoint. Yields text chunks (SSE-compatible plain strings).
+    Builds a system prompt with current project context so the AI can answer
+    project-specific questions.
+    """
+    from openai import AsyncOpenAI
+
+    from app.models.ai import AIChatMessage
+    from app.models.workspace import Workspace
+    from app.modules.ai.tools import TOOLS_SCHEMA, dispatch_tool_call
+
+    api_key = settings.NVIDIA_API_KEY or settings.OPENAI_API_KEY
+    if not api_key:
+        yield "The AI chatbot is not configured (missing API key)."
+        return
+
+    # 1. Validate session ownership before writing
+    from app.models.ai import AIChatSession
+
+    session_obj = await db.get(AIChatSession, session_id)
+    if not session_obj:
+        yield "Chat session not found."
+        return
+    if session_obj.user_id != current_user.id:
+        yield ("Access denied.")
+        return
+
+    user_msg = AIChatMessage(session_id=session_id, role="user", content=user_content)
+    db.add(user_msg)
+    await db.commit()
+    await db.refresh(user_msg)
+
+    # ── Gather project context ─────────────────────────────────────────
+    project_row = (
+        await db.execute(
+            select(Project, Workspace)
+            .outerjoin(Workspace, Project.workspace_id == Workspace.id)
+            .where(Project.id == project_id, Project.is_deleted.is_(False))
+        )
+    ).one_or_none()
+
+    if not project_row:
+        yield "Project not found."
+        return
+
+    project, workspace = project_row
+    is_personal = workspace is not None and workspace.type == "personal"
+
+    now = datetime.now(UTC)
+
+    # ── CB-1: Cache chat context in Redis (TTL 60s) ────────────────────
+    import json as _json
+
+    import redis.asyncio as aioredis
+
+    _ctx_cache_key = f"chatctx:{project_id}"
+    _ctx_ttl = 60
+    _cached_ctx = None
+    try:
+        _r = aioredis.from_url(settings.REDIS_URL)
+        _raw = await _r.get(_ctx_cache_key)
+        await _r.aclose()
+        if _raw:
+            _cached_ctx = _json.loads(_raw)
+    except Exception:
+        pass  # fail-open: if Redis is down, query the DB as usual
+
+    if _cached_ctx:
+        total_tasks = _cached_ctx["total_tasks"]
+        done_tasks = _cached_ctx["done_tasks"]
+        overdue_tasks = _cached_ctx["overdue_tasks"]
+        sprint_info = _cached_ctx["sprint_info"]
+        task_lines = _cached_ctx["task_lines"]
+        completion_pct = _cached_ctx["completion_pct"]
+    else:
+        base = and_(Task.project_id == project_id, Task.is_deleted.is_(False))
+
+        total_tasks = await db.scalar(select(func.count(Task.id)).where(base)) or 0
+        done_tasks = (
+            await db.scalar(
+                select(func.count(Task.id)).where(base, Task.status == "done")
+            )
+            or 0
+        )
+        overdue_tasks = (
+            await db.scalar(
+                select(func.count(Task.id)).where(
+                    base,
+                    Task.deadline.isnot(None),
+                    Task.deadline < now,
+                    Task.status != "done",
+                )
+            )
+            or 0
+        )
+
+        active_sprint_row = (
+            await db.execute(
+                select(Sprint)
+                .where(
+                    Sprint.project_id == project_id,
+                    Sprint.status == "active",
+                    Sprint.is_deleted.is_(False),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        recent_tasks_rows = (
+            await db.execute(
+                select(Task.title, Task.status, Task.priority, Task.deadline)
+                .where(base, Task.parent_task_id.is_(None), Task.status != "done")
+                .order_by(Task.deadline.asc().nulls_last())
+                .limit(10)
+            )
+        ).all()
+
+        task_lines = []
+        for row in recent_tasks_rows:
+            dl = row.deadline.strftime("%d/%m") if row.deadline else "no deadline"
+            task_lines.append(
+                f"- [{row.status}][{row.priority}] {row.title} (deadline: {dl})"
+            )
+
+        sprint_info = "No active sprint"
+        if active_sprint_row:
+            sprint_info = f"Sprint '{active_sprint_row.name}' (active)"
+
+        completion_pct = round(done_tasks / total_tasks * 100) if total_tasks else 0
+
+        # Cache in Redis
+        try:
+            _r = aioredis.from_url(settings.REDIS_URL)
+            await _r.setex(
+                _ctx_cache_key,
+                _ctx_ttl,
+                _json.dumps(
+                    {
+                        "total_tasks": total_tasks,
+                        "done_tasks": done_tasks,
+                        "overdue_tasks": overdue_tasks,
+                        "sprint_info": sprint_info,
+                        "task_lines": task_lines,
+                        "completion_pct": completion_pct,
+                    }
+                ),
+            )
+            await _r.aclose()
+        except Exception:
+            pass  # fail-open
+
+    is_vi = lang == "vi"
+
+    system_prompt = f"""You are an intelligent AI assistant for the TaskManager project management system.
+You have access to project data and help users manage their work more effectively.
+
+CURRENT PROJECT DATA:
+- Project name: {project.name}
+- Type: {"Personal" if is_personal else "Team"}
+- Total tasks: {total_tasks} | Done: {done_tasks} ({completion_pct}%) | Overdue: {overdue_tasks}
+- Sprint: {sprint_info}
+
+PENDING TASKS (up to 10):
+{chr(10).join(task_lines) if task_lines else "No pending tasks"}
+
+TOOL USAGE INSTRUCTIONS:
+1. ONLY CALL TOOLS when the user gives a clear command (e.g., "Create task", "Start sprint 2", "Delete task X"). DO NOT call tools if they are just asking.
+2. SEARCH FIRST: If the user asks for an action (Update/Delete) WITHOUT providing the ID, YOU (the AI) MUST automatically call the search tools (`list_tasks`, `list_sprints`, `list_automations`) to retrieve the correct ID. NEVER ask the user to type commands or provide IDs.
+3. SECURITY: NEVER show raw UUIDs (Task ID, Sprint ID, Rule ID) to the user. Always use names/titles.
+4. CONFIRM DELETION: When the user asks to delete a task or rule, you MUST ask for confirmation first ("Are you sure you want to delete?"). ONLY execute the delete tool if the user already agreed in the previous turn.
+
+COMMUNICATION INSTRUCTIONS:
+- Reply concisely, practically and helpfully in {"English"}.
+- Limit responses to 150 words unless detailed explanation is needed.
+- Do not invent PROJECT INFORMATION. For casual conversation (greetings, jokes, etc.), reply naturally and flexibly.
+"""
+
+    openai_messages = [{"role": "system", "content": system_prompt}]
+
+    # DB load
+    db_messages = await get_chat_messages(db, session_id, current_user.id)
+    recent_db = db_messages[-6:] if len(db_messages) > 6 else db_messages
+    for m in recent_db:
+        msg_dict = {"role": m.role}
+        if m.content:
+            msg_dict["content"] = m.content
+        if m.tool_calls:
+            msg_dict["tool_calls"] = m.tool_calls
+        if m.tool_call_id:
+            msg_dict["tool_call_id"] = m.tool_call_id
+            if not m.content:
+                msg_dict["content"] = ""
+        # Assistant without content/tools is invalid
+        if m.role == "assistant" and not m.content and not m.tool_calls:
+            continue
+        openai_messages.append(msg_dict)
+
+    try:
+        if settings.NVIDIA_API_KEY:
+            client = AsyncOpenAI(
+                base_url=settings.NVIDIA_BASE_URL, api_key=settings.NVIDIA_API_KEY
+            )
+            model = "meta/llama-3.1-8b-instruct"
+        else:
+            client = AsyncOpenAI(
+                api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_BASE_URL
+            )
+            model = settings.OPENAI_MODEL_NAME
+
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=openai_messages,
+            max_tokens=512,
+            temperature=0.5,
+            stream=True,
+            tools=TOOLS_SCHEMA,
+        )
+
+        tool_calls = {}
+        full_content = ""
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if not delta:
+                continue
+            if delta.content:
+                full_content += delta.content
+                yield delta.content
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    if tc.index not in tool_calls:
+                        tool_calls[tc.index] = {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": ""},
+                        }
+                    if tc.function.arguments:
+                        tool_calls[tc.index]["function"]["arguments"] += (
+                            tc.function.arguments
+                        )
+
+        if tool_calls:
+            assistant_msg = {
+                "role": "assistant",
+                "tool_calls": list(tool_calls.values()),
+            }
+            openai_messages.append(assistant_msg)
+
+            db.add(
+                AIChatMessage(
+                    session_id=session_id,
+                    role="assistant",
+                    content=full_content if full_content else None,
+                    tool_calls=list(tool_calls.values()),
+                )
+            )
+
+            for idx, tc in tool_calls.items():
+                result_str = await dispatch_tool_call(
+                    tc, project_id, current_user, db, lang=lang
+                )
+
+                if "[toast:" in result_str:
+                    before, sep, _ = result_str.partition("[/toast]")
+                    if sep:
+                        yield f"\n\n{before}[/toast]\n\n"
+
+                openai_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": tc["function"]["name"],
+                        "content": result_str,
+                    }
+                )
+
+                db.add(
+                    AIChatMessage(
+                        session_id=session_id,
+                        role="tool",
+                        tool_call_id=tc["id"],
+                        content=result_str,
+                    )
+                )
+
+            stream2 = await client.chat.completions.create(
+                model=model,
+                messages=openai_messages,
+                max_tokens=512,
+                temperature=0.5,
+                stream=True,
+            )
+            final_content = ""
+            async for chunk in stream2:
+                delta2 = chunk.choices[0].delta.content if chunk.choices else None
+                if delta2:
+                    final_content += delta2
+                    yield delta2
+
+            db.add(
+                AIChatMessage(
+                    session_id=session_id, role="assistant", content=final_content
+                )
+            )
+            await db.commit()
+
+        else:
+            db.add(
+                AIChatMessage(
+                    session_id=session_id, role="assistant", content=full_content
+                )
+            )
+            await db.commit()
+
+    except Exception as exc:
+        logger.warning("Chat streaming failed: %s", exc)
+        if is_vi:
+            yield "\n\n_(AI connection error, please try again.)_"
+        else:
+            yield "\n\n_(AI connection error, please try again.)_"
 
 
 async def get_ai_metrics(db: AsyncSession, project_id: UUID) -> AIMetricsResponse:
@@ -973,7 +1303,7 @@ async def update_metric_feedback(
     project_id: UUID,
     metric_id: UUID,
     body: AIMetricFeedback,
-    user_id: Optional[UUID] = None,
+    user_id: UUID | None = None,
 ) -> dict:
     metric = await db.get(AIMetric, metric_id)
     if not metric or metric.project_id != project_id:
@@ -981,12 +1311,13 @@ async def update_metric_feedback(
 
     metric.status = body.status
     metric.feedback_note = body.feedback_note
-    metric.feedback_at = datetime.now(timezone.utc)
+    metric.feedback_at = datetime.now(UTC)
 
     # If user rejects a breakdown, soft-delete the AI-generated subtasks
     if body.status == "rejected" and metric.feature == "breakdown" and metric.task_id:
-        from app.models.task import Task
         from sqlalchemy import update as sa_update
+
+        from app.models.task import Task
 
         # Only the subtasks this breakdown created (not those written by people)
         created_ids = [
@@ -1002,7 +1333,7 @@ async def update_metric_feedback(
             )
             .values(
                 is_deleted=True,
-                deleted_at=datetime.now(timezone.utc),
+                deleted_at=datetime.now(UTC),
                 deleted_by=user_id,
             )
             .returning(Task.id)
@@ -1019,3 +1350,40 @@ async def update_metric_feedback(
     await db.commit()
 
     return {"id": str(metric.id), "status": metric.status}
+
+
+# --- CHAT SESSIONS (ChatGPT STYLE) ---
+from sqlalchemy import desc
+
+from app.models.ai import AIChatMessage, AIChatSession
+
+
+async def get_chat_sessions(db: AsyncSession, project_id: UUID, user_id: UUID):
+    stmt = (
+        select(AIChatSession)
+        .where(AIChatSession.project_id == project_id, AIChatSession.user_id == user_id)
+        .order_by(desc(AIChatSession.created_at))
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+async def create_chat_session(
+    db: AsyncSession, project_id: UUID, user_id: UUID, title: str = "New Conversation"
+):
+    session = AIChatSession(project_id=project_id, user_id=user_id, title=title)
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+async def get_chat_messages(db: AsyncSession, session_id: UUID, user_id: UUID):
+    stmt = (
+        select(AIChatMessage)
+        .join(AIChatSession)
+        .where(AIChatMessage.session_id == session_id, AIChatSession.user_id == user_id)
+        .order_by(AIChatMessage.created_at.asc())
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()

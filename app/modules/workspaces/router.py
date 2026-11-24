@@ -1,4 +1,3 @@
-from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -7,21 +6,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
+from app.modules.workspaces.manager import workspace_manager
 from app.modules.workspaces.schemas import (
     WorkspaceCreate,
-    WorkspaceUpdate,
-    WorkspaceResponse,
-    WorkspaceMemberResponse,
-    WorkspaceMemberInvite,
-    WorkspaceMemberUpdate,
     WorkspaceInvitationResponse,
+    WorkspaceMemberInvite,
+    WorkspaceMemberResponse,
+    WorkspaceMemberUpdate,
+    WorkspaceResponse,
+    WorkspaceUpdate,
 )
-from app.modules.workspaces.manager import workspace_manager
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
-@router.get("", response_model=List[WorkspaceResponse])
+@router.get("", response_model=list[WorkspaceResponse])
 async def list_workspaces(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -73,7 +72,7 @@ async def delete_workspace(
     return await workspace_manager.delete_workspace(db, workspace_id, current_user)
 
 
-@router.get("/{workspace_id}/members", response_model=List[WorkspaceMemberResponse])
+@router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberResponse])
 async def get_workspace_members(
     workspace_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -84,7 +83,7 @@ async def get_workspace_members(
 
 
 @router.get(
-    "/{workspace_id}/invitations", response_model=List[WorkspaceInvitationResponse]
+    "/{workspace_id}/invitations", response_model=list[WorkspaceInvitationResponse]
 )
 async def get_workspace_invitations(
     workspace_id: UUID,

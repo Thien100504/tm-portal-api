@@ -41,4 +41,4 @@ make dev-backend
 Once running, the API docs are served at `http://localhost:8000/docs`.
 
 ## 🚀 CI/CD
-The project is configured with GitLab CI/CD in `.gitlab-ci.yml`. It automatically runs tests, builds the Docker image and deploys to the VPS.
+CI/CD is defined in `.gitlab-ci.yml` on the GitLab mirror: it tests, builds the Docker image and deploys to the VPS.

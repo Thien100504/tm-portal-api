@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 
-
 from app.modules.auth.security import (
     create_access_token,
     create_refresh_token,

@@ -6,7 +6,6 @@ Applies the singleton pattern with lru_cache to avoid re-initializing multiple t
 """
 
 from functools import lru_cache
-from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,11 +40,13 @@ class Settings(BaseSettings):
 
     # --- AI Integration (NVIDIA / OpenAI) ---
     OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str | None = None
+    OPENAI_MODEL_NAME: str = "gpt-4o-mini"
     NVIDIA_API_KEY: str = ""
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
 
     # --- CORS (GAP-01 fix) ---
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
     ]
 
     # --- Default admin (GAP-05) ---
-    ADMIN_EMAIL: str = "admin@taskmanager.com"
+    ADMIN_EMAIL: str = "admin@taskmanager.local"
     ADMIN_PASSWORD: str = "Admin@123456"
 
     # --- Logging ---
@@ -74,7 +75,7 @@ class Settings(BaseSettings):
         return self.DATABASE_URL.replace("+asyncpg", "+psycopg2")
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """
     Singleton factory for Settings.

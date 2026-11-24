@@ -5,9 +5,10 @@ Revises: da391e5a7c0f
 Create Date: 2026-06-28 01:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "a1b2c3d4e5f7"
 down_revision = "da391e5a7c0f"

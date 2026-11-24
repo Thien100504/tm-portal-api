@@ -1,24 +1,24 @@
-from typing import List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
-from app.modules.auth.dependencies import require_admin
+from app.modules.admin.manager import admin_manager
 from app.modules.admin.schemas import (
     AdminUserResponse,
     AdminUserUpdate,
     WorkspaceAdminResponse,
 )
-from app.modules.admin.manager import admin_manager
+from app.modules.auth.dependencies import require_admin
 
 router = APIRouter(
     prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)]
 )
 
 
-@router.get("/users", response_model=List[AdminUserResponse])
+@router.get("/users", response_model=list[AdminUserResponse])
 async def list_users(db: AsyncSession = Depends(get_db)):
     """List every user of the system (admin only)."""
     return await admin_manager.list_users(db)
@@ -54,7 +54,7 @@ async def update_user_status(
     )
 
 
-@router.get("/workspaces", response_model=List[WorkspaceAdminResponse])
+@router.get("/workspaces", response_model=list[WorkspaceAdminResponse])
 async def list_workspaces(db: AsyncSession = Depends(get_db)):
     """List every workspace (admin only)."""
     return await admin_manager.list_workspaces(db)

@@ -1,5 +1,4 @@
 import uuid
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +12,13 @@ from app.modules.epics.schemas import EpicCreate, EpicResponse, EpicUpdate
 from app.modules.projects.dependencies import get_project_access, get_project_pm_access
 from app.modules.projects.manager import project_manager
 from app.modules.rbac.manager import rbac_manager
+from app.modules.workspaces.features import require_feature
 
-router = APIRouter(prefix="/epics", tags=["epics"])
+router = APIRouter(
+    prefix="/epics",
+    tags=["epics"],
+    dependencies=[Depends(require_feature("enable_epics"))],
+)
 
 
 async def check_workspace_access(
@@ -62,10 +66,10 @@ async def create_epic(
     return await epic_manager.create(db, obj_in=epic_in)
 
 
-@router.get("", response_model=List[EpicResponse])
+@router.get("", response_model=list[EpicResponse])
 async def list_epics(
-    workspace_id: Optional[uuid.UUID] = Query(None),
-    project_id: Optional[uuid.UUID] = Query(None),
+    workspace_id: uuid.UUID | None = Query(None),
+    project_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):

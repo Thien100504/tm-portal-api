@@ -37,7 +37,7 @@ async def redis_listener(redis_url: str):
 
             await pubsub.psubscribe("ws:projects:*", "notifications:*")
             logger.info(
-                "🔌 Redis listener started: subscribed to ws:projects:* and notifications:*"
+                "Redis listener started: subscribed to ws:projects:* and notifications:*"
             )
 
             async for raw_message in pubsub.listen():

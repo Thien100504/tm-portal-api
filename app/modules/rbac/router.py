@@ -1,19 +1,18 @@
-from typing import List
 import uuid
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.user import User
 from app.models.rbac import Permission
+from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.rbac.manager import rbac_manager
 from app.modules.rbac.schemas import (
     PermissionResponse,
-    RoleResponse,
     RoleCreate,
+    RoleResponse,
     RoleUpdate,
     RoleUpdatePermissions,
 )
@@ -21,7 +20,7 @@ from app.modules.rbac.schemas import (
 router = APIRouter(prefix="/roles", tags=["roles"])
 
 
-@router.get("/permissions", response_model=List[PermissionResponse])
+@router.get("/permissions", response_model=list[PermissionResponse])
 async def get_permissions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -32,7 +31,7 @@ async def get_permissions(
     return result.scalars().all()
 
 
-@router.get("", response_model=List[RoleResponse])
+@router.get("", response_model=list[RoleResponse])
 async def get_roles(
     scope: str = "project",
     workspace_id: uuid.UUID | None = None,
@@ -87,7 +86,7 @@ async def delete_role(
     return await rbac_manager.delete_role(db, role_id, current_user)
 
 
-@router.get("/my-permissions", response_model=List[str])
+@router.get("/my-permissions", response_model=list[str])
 async def get_my_permissions(
     project_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,

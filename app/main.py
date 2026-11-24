@@ -16,18 +16,18 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.logging_config import setup_logging
-from app.middleware.request_id import RequestIDMiddleware
 from app.api_v1 import api_v1_router
 from app.config import get_settings
 from app.database import engine
+from app.logging_config import setup_logging
+from app.middleware.request_id import RequestIDMiddleware
 from app.modules.websocket.listener import redis_listener
-from app.modules.websocket.manager import init_redis_pool, close_redis_pool
+from app.modules.websocket.manager import close_redis_pool, init_redis_pool
 from app.modules.websocket.router import router as ws_router
 
 settings = get_settings()
@@ -60,11 +60,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # --- Shutdown ---
-    print("Task Manager API is shutting down...")
+    print("Task Manager API dang tat...")
     listener_task.cancel()
     try:
         await asyncio.wait_for(listener_task, timeout=5.0)
-    except (asyncio.CancelledError, asyncio.TimeoutError):
+    except (TimeoutError, asyncio.CancelledError):
         pass
     await close_redis_pool()
     await engine.dispose()

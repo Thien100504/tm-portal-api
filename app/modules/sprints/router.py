@@ -1,5 +1,4 @@
 import uuid
-from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,21 +11,24 @@ from app.modules.auth.dependencies import get_current_active_user
 from app.modules.projects.dependencies import get_project_access, get_project_pm_access
 from app.modules.sprints.manager import sprint_manager
 from app.modules.sprints.schemas import (
-    check_sprint_dates,
-    SprintCreate,
     SprintCompleteRequest,
+    SprintCreate,
     SprintResponse,
     SprintStats,
     SprintUpdate,
+    check_sprint_dates,
 )
+from app.modules.workspaces.features import require_feature
 
-router = APIRouter(tags=["sprints"])
+router = APIRouter(
+    tags=["sprints"], dependencies=[Depends(require_feature("enable_sprint"))]
+)
 
 
 # ─── Project-scoped endpoints ────────────────────────────────────────
 
 
-@router.get("/projects/{project_id}/sprints", response_model=List[SprintResponse])
+@router.get("/projects/{project_id}/sprints", response_model=list[SprintResponse])
 async def get_sprints(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

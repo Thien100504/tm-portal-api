@@ -14,7 +14,7 @@ Design:
 """
 
 import uuid
-from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats", response_model=PersonalStats)
 async def get_personal_stats(
-    workspace_id: Optional[uuid.UUID] = Query(None, description="Filter by workspace"),
+    workspace_id: uuid.UUID | None = Query(None, description="Filter by workspace"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):

@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, EmailStr
-from uuid import UUID
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class WorkspaceSettings(BaseModel):
@@ -22,12 +23,12 @@ class WorkspaceSettings(BaseModel):
 class WorkspaceCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     type: str = Field("personal", pattern="^(personal|team)$")
-    settings: Optional[WorkspaceSettings] = None
+    settings: WorkspaceSettings | None = None
 
 
 class WorkspaceUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=2, max_length=100)
-    settings: Optional[WorkspaceSettings] = None
+    name: str | None = Field(None, min_length=2, max_length=100)
+    settings: WorkspaceSettings | None = None
 
 
 class WorkspaceResponse(BaseModel):
@@ -35,11 +36,10 @@ class WorkspaceResponse(BaseModel):
     name: str
     type: str
     owner_id: UUID
-    settings: Dict[str, Any]
+    settings: dict[str, Any]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 from app.modules.auth.schemas import UserResponse
@@ -48,34 +48,32 @@ from app.modules.rbac.schemas import RoleResponse
 
 class WorkspaceMemberInvite(BaseModel):
     email: EmailStr
-    role_id: Optional[UUID] = None
+    role_id: UUID | None = None
 
 
 class WorkspaceMemberUpdate(BaseModel):
-    role_id: Optional[UUID] = None
+    role_id: UUID | None = None
 
 
 class WorkspaceMemberResponse(BaseModel):
     workspace_id: UUID
     user_id: UUID
-    role_id: Optional[UUID] = None
-    role: Optional[RoleResponse] = None
-    user: Optional[UserResponse] = None
+    role_id: UUID | None = None
+    role: RoleResponse | None = None
+    user: UserResponse | None = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkspaceInvitationResponse(BaseModel):
     id: UUID
     workspace_id: UUID
     email: str
-    role_id: Optional[UUID] = None
-    role: Optional[RoleResponse] = None
+    role_id: UUID | None = None
+    role: RoleResponse | None = None
     status: str
     expires_at: datetime
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

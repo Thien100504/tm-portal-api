@@ -1,5 +1,4 @@
 import uuid
-from typing import List
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -15,7 +14,7 @@ from app.modules.auth.security import get_password_hash
 
 
 class AdminManager:
-    async def list_users(self, db: AsyncSession) -> List[User]:
+    async def list_users(self, db: AsyncSession) -> list[User]:
         stmt = select(User).order_by(User.created_at.desc())
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -69,7 +68,7 @@ class AdminManager:
         await db.refresh(user)
         return user
 
-    async def list_workspaces(self, db: AsyncSession) -> List[dict]:
+    async def list_workspaces(self, db: AsyncSession) -> list[dict]:
         stmt = (
             select(Workspace)
             .options(selectinload(Workspace.owner))
