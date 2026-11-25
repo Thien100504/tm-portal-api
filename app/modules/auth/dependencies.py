@@ -1,6 +1,5 @@
 import logging
 import time
-from typing import Optional
 from uuid import UUID
 
 import redis.asyncio as aioredis
@@ -113,7 +112,7 @@ async def get_current_user(
     if await is_token_blacklisted(token):
         raise credentials_exception
 
-    user_id_str: Optional[str] = payload.get("sub")
+    user_id_str: str | None = payload.get("sub")
     if user_id_str is None:
         raise credentials_exception
 
@@ -147,7 +146,7 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Alias for get_current_user, since get_current_user already checks is_active."""
+    """Alias of get_current_user, which already checks is_active."""
     return current_user
 
 
@@ -171,7 +170,7 @@ async def get_current_user_from_token(token: str, db: AsyncSession) -> User:
     if await is_token_blacklisted(token):
         raise credentials_exception
 
-    user_id_str: Optional[str] = payload.get("sub")
+    user_id_str: str | None = payload.get("sub")
     if not user_id_str:
         raise credentials_exception
 

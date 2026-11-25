@@ -180,8 +180,9 @@ async def test_removed_member_hands_their_projects_to_the_workspace_owner():
 
 
 def test_project_members_skip_removed_rows():
-    from app.modules.projects.manager import project_manager
     import asyncio
+
+    from app.modules.projects.manager import project_manager
 
     live = SimpleNamespace(is_deleted=False)
     gone = SimpleNamespace(is_deleted=True)

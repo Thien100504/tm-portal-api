@@ -1,12 +1,11 @@
 """Tests targeting uncovered lines to push coverage above 70%."""
 
 import uuid
-from datetime import date, timedelta, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from sqlalchemy.exc import IntegrityError, OperationalError
 
 import pytest
-
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +58,7 @@ async def test_check_workspace_owner_non_owner_admin():
 @pytest.mark.asyncio
 async def test_check_workspace_owner_non_owner_denied():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     user = _make_user()
@@ -99,7 +99,7 @@ async def test_create_workspace_unhandled_exception():
 @pytest.mark.asyncio
 async def test_update_workspace_with_settings():
     from app.modules.workspaces.manager import workspace_manager
-    from app.modules.workspaces.schemas import WorkspaceUpdate, WorkspaceSettings
+    from app.modules.workspaces.schemas import WorkspaceSettings, WorkspaceUpdate
 
     user = _make_user()
     ws = _make_ws(owner_id=user.id)
@@ -158,6 +158,7 @@ async def test_delete_workspace_unhandled_exception():
 @pytest.mark.asyncio
 async def test_update_workspace_member_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
     from app.modules.workspaces.schemas import WorkspaceMemberUpdate
 
@@ -181,6 +182,7 @@ async def test_update_workspace_member_integrity_error():
 @pytest.mark.asyncio
 async def test_update_workspace_member_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
     from app.modules.workspaces.schemas import WorkspaceMemberUpdate
 
@@ -207,6 +209,7 @@ async def test_update_workspace_member_operational_error():
 @pytest.mark.asyncio
 async def test_remove_workspace_member_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     user = _make_user()
@@ -228,6 +231,7 @@ async def test_remove_workspace_member_integrity_error():
 @pytest.mark.asyncio
 async def test_remove_workspace_member_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     user = _make_user()
@@ -252,6 +256,7 @@ async def test_remove_workspace_member_operational_error():
 @pytest.mark.asyncio
 async def test_invite_workspace_member_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
     from app.modules.workspaces.schemas import WorkspaceMemberInvite
 
@@ -274,6 +279,7 @@ async def test_invite_workspace_member_integrity_error():
 @pytest.mark.asyncio
 async def test_invite_workspace_member_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
     from app.modules.workspaces.schemas import WorkspaceMemberInvite
 
@@ -299,6 +305,7 @@ async def test_invite_workspace_member_operational_error():
 @pytest.mark.asyncio
 async def test_cancel_invitation_not_found():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     user = _make_user()
@@ -337,6 +344,7 @@ async def test_cancel_invitation_success():
 @pytest.mark.asyncio
 async def test_cancel_invitation_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     user = _make_user()
@@ -359,6 +367,7 @@ async def test_cancel_invitation_integrity_error():
 @pytest.mark.asyncio
 async def test_cancel_invitation_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     user = _make_user()
@@ -480,6 +489,7 @@ async def test_create_role_with_workspace_access():
 @pytest.mark.asyncio
 async def test_create_role_with_workspace_no_access():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleCreate
 
@@ -502,6 +512,7 @@ async def test_create_role_with_workspace_no_access():
 @pytest.mark.asyncio
 async def test_update_role_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdate
 
@@ -574,6 +585,7 @@ async def test_update_role_with_workspace_access():
 @pytest.mark.asyncio
 async def test_update_role_with_workspace_no_access():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdate
 
@@ -584,13 +596,17 @@ async def test_update_role_with_workspace_no_access():
     mock_role.workspace_id = ws_id
     db.scalar = AsyncMock(return_value=mock_role)
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=False)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=False),
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await rbac_manager.update_role(
-                db, uuid.uuid4(), RoleUpdate(name="X"), _make_user()
-            )
+        await rbac_manager.update_role(
+            db, uuid.uuid4(), RoleUpdate(name="X"), _make_user()
+        )
     assert exc.value.status_code == 403
 
 
@@ -600,6 +616,7 @@ async def test_update_role_with_workspace_no_access():
 @pytest.mark.asyncio
 async def test_update_role_permissions_workspace_no_access():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdatePermissions
 
@@ -611,19 +628,24 @@ async def test_update_role_permissions_workspace_no_access():
     mock_role.permissions = []
     db.scalar = AsyncMock(return_value=mock_role)
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=False)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=False),
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await rbac_manager.update_role_permissions(
-                db, uuid.uuid4(), RoleUpdatePermissions(permission_ids=[]), _make_user()
-            )
+        await rbac_manager.update_role_permissions(
+            db, uuid.uuid4(), RoleUpdatePermissions(permission_ids=[]), _make_user()
+        )
     assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_update_role_permissions_invalid_perm_ids():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdatePermissions
 
@@ -654,6 +676,7 @@ async def test_update_role_permissions_invalid_perm_ids():
 @pytest.mark.asyncio
 async def test_update_role_permissions_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdatePermissions
 
@@ -709,6 +732,7 @@ async def test_delete_role_with_workspace_access():
 @pytest.mark.asyncio
 async def test_delete_role_with_workspace_no_access():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
 
     db = AsyncMock()
@@ -718,17 +742,22 @@ async def test_delete_role_with_workspace_no_access():
     mock_role.workspace_id = ws_id
     db.scalar = AsyncMock(return_value=mock_role)
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=False)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=False),
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await rbac_manager.delete_role(db, uuid.uuid4(), _make_user())
+        await rbac_manager.delete_role(db, uuid.uuid4(), _make_user())
     assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_delete_role_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
 
     db = AsyncMock()
@@ -750,6 +779,7 @@ async def test_delete_role_integrity_error():
 @pytest.mark.asyncio
 async def test_delete_role_operational_error():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
 
     db = AsyncMock()
@@ -800,10 +830,12 @@ async def test_epic_manager_get_by_project():
 
 @pytest.mark.asyncio
 async def test_create_task_subtask_deadline_exceeded():
+    from datetime import datetime as dt
+
     from fastapi import HTTPException
+
     from app.modules.tasks.manager import task_manager
     from app.modules.tasks.schemas import TaskCreate
-    from datetime import datetime as dt
 
     db = AsyncMock()
     project_id = uuid.uuid4()
@@ -995,6 +1027,7 @@ async def test_update_position_with_insert_after():
 @pytest.mark.asyncio
 async def test_task_update_subtask_deadline_check():
     from fastapi import HTTPException
+
     from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
@@ -1033,7 +1066,8 @@ async def test_sprint_get_stats_with_started_at():
     sprint = MagicMock()
     sprint.id = uuid.uuid4()
     sprint.status = "active"
-    sprint.started_at = datetime.now() - timedelta(days=3)
+
+    sprint.started_at = datetime.now(UTC) - timedelta(days=3)
     sprint.completed_at = None
 
     t1 = MagicMock(status="done")

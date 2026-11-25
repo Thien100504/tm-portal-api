@@ -11,9 +11,8 @@ Includes:
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, Boolean, ForeignKey, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -66,7 +65,7 @@ class TimestampMixin:
 
 class SoftDeleteMixin:
     """
-    Mixin providing columns for Soft Delete.
+    Mixin with the columns used for soft deletion.
 
     - is_deleted: Whether the record has been deleted.
     - deleted_at: Time of deletion.
@@ -76,9 +75,9 @@ class SoftDeleteMixin:
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False, index=True
     )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

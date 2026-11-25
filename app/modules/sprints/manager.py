@@ -1,6 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -14,13 +13,13 @@ from app.modules.sprints.schemas import SprintCreate, SprintUpdate
 
 def _as_utc(value: datetime) -> datetime:
     """Treat naive datetimes as UTC so they can be compared with timestamptz columns."""
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
     async def get_sprints_by_project(
         self, db: AsyncSession, project_id: uuid.UUID
-    ) -> List[Sprint]:
+    ) -> list[Sprint]:
         query = (
             select(self.model)
             .where(
@@ -64,7 +63,7 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
             )
 
         sprint.status = "active"
-        sprint.started_at = datetime.now(timezone.utc)
+        sprint.started_at = datetime.now(UTC)
         await db.flush()
         await db.refresh(sprint)
         return sprint
@@ -77,7 +76,7 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
         db: AsyncSession,
         sprint: Sprint,
         incomplete_action: str,
-        target_sprint_id: Optional[uuid.UUID],
+        target_sprint_id: uuid.UUID | None,
     ) -> dict:
         """
         Complete a sprint:
@@ -128,7 +127,7 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
                 task.sprint_id = target_sprint_id
 
         sprint.status = "completed"
-        sprint.completed_at = datetime.now(timezone.utc)
+        sprint.completed_at = datetime.now(UTC)
         await db.flush()
 
         return {
@@ -188,7 +187,7 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
         # Number of days the sprint actually ran
         actual_days = None
         if sprint.started_at:
-            end_ts = sprint.completed_at or datetime.now(timezone.utc)
+            end_ts = sprint.completed_at or datetime.now(UTC)
             actual_days = max((_as_utc(end_ts) - _as_utc(sprint.started_at)).days, 1)
 
         return {
@@ -223,18 +222,18 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
             return []
 
         # Start: prefer started_at (actual) over start_date (planned)
-        start: Optional[datetime] = sprint.started_at
+        start: datetime | None = sprint.started_at
         if not start and sprint.start_date:
             start = datetime.combine(sprint.start_date, datetime.min.time())
         if not start:
             return []
 
         # End: completed_at, else end_date, else today
-        end: Optional[datetime] = sprint.completed_at
+        end: datetime | None = sprint.completed_at
         if not end and sprint.end_date:
             end = datetime.combine(sprint.end_date, datetime.min.time())
         if not end:
-            end = datetime.now(timezone.utc)
+            end = datetime.now(UTC)
 
         start, end = _as_utc(start), _as_utc(end)
         total_hours = sum(t.estimated_hours or 1.0 for t in tasks)

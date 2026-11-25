@@ -6,7 +6,7 @@ Notification model — a personal notification for one user.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,18 +26,18 @@ class Notification(UUIDMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    event_type: Mapped[Optional[str]] = mapped_column(
+    event_type: Mapped[str | None] = mapped_column(
         String(100), nullable=True, index=True
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    event_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    event_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # "info" | "success" | "warning" | "automation"
     type: Mapped[str] = mapped_column(String(50), default="info", nullable=False)
     # "task" | "sprint" | "automation" | "system"
-    entity_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True)
-    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
     is_read: Mapped[bool] = mapped_column(
@@ -48,4 +48,4 @@ class Notification(UUIDMixin, Base):
     )
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="notifications")
+    user: Mapped[User] = relationship("User", back_populates="notifications")

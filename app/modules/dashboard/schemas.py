@@ -9,11 +9,9 @@ Three layers:
 """
 
 from datetime import datetime
-from typing import List
 from uuid import UUID
 
-from pydantic import BaseModel
-
+from pydantic import BaseModel, ConfigDict
 
 # ── Shared building blocks ────────────────────────────────────────────
 
@@ -27,8 +25,7 @@ class UpcomingTask(BaseModel):
     project_id: UUID
     project_name: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectProgress(BaseModel):
@@ -38,8 +35,7 @@ class ProjectProgress(BaseModel):
     my_tasks_total: int  # task assigned to me, total
     my_role: str  # viewer / project_manager
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TeamMemberWorkload(BaseModel):
@@ -73,12 +69,12 @@ class PersonalStats(BaseModel):
     my_tasks: MyTaskStats
     overdue_count: int
     my_projects_count: int
-    upcoming_tasks: List[UpcomingTask]
-    my_projects: List[ProjectProgress]
+    upcoming_tasks: list[UpcomingTask]
+    my_projects: list[ProjectProgress]
     # PM extras (only filled when the user is a PM of at least one project)
     is_pm: bool = False
-    team_workload: List[TeamMemberWorkload] = []
-    blocked_tasks: List[BlockedTask] = []
+    team_workload: list[TeamMemberWorkload] = []
+    blocked_tasks: list[BlockedTask] = []
 
 
 # ── Admin stats (system_role = admin only) ───────────────────────────
@@ -98,8 +94,7 @@ class RecentUser(BaseModel):
     system_role: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AdminStats(BaseModel):
@@ -110,4 +105,4 @@ class AdminStats(BaseModel):
     total_tasks: int
     tasks_by_status: TasksByStatus
     done_this_week: int
-    recent_users: List[RecentUser]
+    recent_users: list[RecentUser]

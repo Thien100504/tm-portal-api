@@ -1,21 +1,21 @@
-# ruff: noqa: F821
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, TimestampMixin, UUIDMixin, SoftDeleteMixin
+from .base import Base, SoftDeleteMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from .user import User
-    from .project import Project
-    from .workspace import Workspace
-    from .sprint import Sprint
-    from .epic import Epic
     from .ai import AISuggestion
+    from .epic import Epic
+    from .project import Project
+    from .sprint import Sprint
+    from .user import User
+    from .workspace import Workspace
 
 
 class TaskDependency(Base):
@@ -44,8 +44,8 @@ class Comment(UUIDMixin, SoftDeleteMixin, Base):
     )
 
     # Relationships
-    task: Mapped["Task"] = relationship("Task", back_populates="comments")
-    user: Mapped["User"] = relationship(
+    task: Mapped[Task] = relationship("Task", back_populates="comments")
+    user: Mapped[User] = relationship(
         "User", back_populates="comments", foreign_keys=[user_id]
     )
 
@@ -72,72 +72,72 @@ class Task(UUIDMixin, TimestampMixin, SoftDeleteMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True
     )
-    sprint_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    sprint_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("sprints.id", ondelete="SET NULL"), nullable=True
     )
-    epic_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    epic_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("epics.id", ondelete="SET NULL"), nullable=True
     )
-    parent_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    parent_task_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, default="todo", nullable=False)
     priority: Mapped[str] = mapped_column(String, default="medium", nullable=False)
-    assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    deadline: Mapped[Optional[datetime]] = mapped_column(
+    deadline: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    estimated_hours: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    actual_hours: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    story_points: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     auto_start: Mapped[bool] = mapped_column(
         default=False, server_default="false", nullable=False
     )
 
     # Relationships
-    project: Mapped["Project"] = relationship("Project", back_populates="tasks")
-    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
-    sprint: Mapped["Sprint"] = relationship("Sprint", back_populates="tasks")
-    epic: Mapped[Optional["Epic"]] = relationship("Epic", back_populates="tasks")
+    project: Mapped[Project] = relationship("Project", back_populates="tasks")
+    workspace: Mapped[Workspace | None] = relationship("Workspace")
+    sprint: Mapped[Sprint] = relationship("Sprint", back_populates="tasks")
+    epic: Mapped[Epic | None] = relationship("Epic", back_populates="tasks")
 
-    parent_task: Mapped[Optional["Task"]] = relationship(
+    parent_task: Mapped[Task | None] = relationship(
         "Task", remote_side="[Task.id]", back_populates="subtasks"
     )
-    subtasks: Mapped[List["Task"]] = relationship(
+    subtasks: Mapped[list[Task]] = relationship(
         "Task", back_populates="parent_task", cascade="all, delete-orphan"
     )
 
-    assignee: Mapped["User"] = relationship(
+    assignee: Mapped[User] = relationship(
         "User", back_populates="assigned_tasks", foreign_keys=[assignee_id]
     )
-    creator: Mapped["User"] = relationship(
+    creator: Mapped[User] = relationship(
         "User", back_populates="created_tasks", foreign_keys=[created_by]
     )
 
-    comments: Mapped[List["Comment"]] = relationship(
+    comments: Mapped[list[Comment]] = relationship(
         "Comment", back_populates="task", cascade="all, delete-orphan"
     )
 
     # Self-referential Many-to-Many for Dependencies
-    dependencies: Mapped[List["Task"]] = relationship(
+    dependencies: Mapped[list[Task]] = relationship(
         "Task",
         secondary="task_dependencies",
         primaryjoin="Task.id == TaskDependency.task_id",
         secondaryjoin="Task.id == TaskDependency.depends_on_id",
         back_populates="dependent_tasks",
     )
-    dependent_tasks: Mapped[List["Task"]] = relationship(
+    dependent_tasks: Mapped[list[Task]] = relationship(
         "Task",
         secondary="task_dependencies",
         primaryjoin="Task.id == TaskDependency.depends_on_id",
@@ -146,6 +146,6 @@ class Task(UUIDMixin, TimestampMixin, SoftDeleteMixin, Base):
         viewonly=True,
     )
 
-    ai_suggestions: Mapped[List["AISuggestion"]] = relationship(
+    ai_suggestions: Mapped[list[AISuggestion]] = relationship(
         "AISuggestion", back_populates="task", cascade="all, delete-orphan"
     )

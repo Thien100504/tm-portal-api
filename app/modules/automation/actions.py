@@ -10,6 +10,7 @@ Adding a new action:
 
 import logging
 import uuid
+from datetime import UTC
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,9 +98,9 @@ class SetDeadlineAction(ActionHandler):
     async def execute(self, db, rule, task, value):
         try:
             days = int(value)
-            from datetime import timedelta, datetime, timezone
+            from datetime import datetime, timedelta
 
-            task.deadline = datetime.now(timezone.utc) + timedelta(days=days)
+            task.deadline = datetime.now(UTC) + timedelta(days=days)
             return True
         except (ValueError, TypeError):
             return False

@@ -1,7 +1,7 @@
-from pydantic import BaseModel, EmailStr
-from uuid import UUID
 from datetime import datetime
-from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class AdminUserResponse(BaseModel):
@@ -12,13 +12,12 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AdminUserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    email: Optional[EmailStr] = None
+    full_name: str | None = None
+    email: EmailStr | None = None
 
 
 class WorkspaceAdminResponse(BaseModel):
@@ -32,5 +31,4 @@ class WorkspaceAdminResponse(BaseModel):
     members_count: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -3,7 +3,6 @@ Project Event Pipeline — side-effects for project membership changes.
 """
 
 import logging
-from typing import Optional
 
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,7 +105,7 @@ class ProjectEventService:
         event_type: str,
         project,
         actor: User,
-        extra: Optional[dict] = None,
+        extra: dict | None = None,
     ):
         ctx = EventContext(
             db=db,

@@ -48,6 +48,8 @@ class ConnectionManager:
         self.active_connections: dict[uuid.UUID, list[WebSocket]] = defaultdict(list)
         # user_id → list of connected websockets (for direct user notifications)
         self.user_connections: dict[str, list[WebSocket]] = defaultdict(list)
+        # WS-3: reverse mapping ws → user_id for cleanup on broadcast failure
+        self._ws_user: dict[int, str] = {}  # id(ws) → user_id
 
     # ── Connection Lifecycle ──────────────────────────────────────────
 
@@ -62,6 +64,7 @@ class ConnectionManager:
             self.active_connections[project_id].append(websocket)
         if user_id:
             self.user_connections[user_id].append(websocket)
+            self._ws_user[id(websocket)] = user_id  # WS-3: track mapping
         logger.info("WS connected: project=%s user=%s", project_id, user_id)
 
     def disconnect(
@@ -78,11 +81,16 @@ class ConnectionManager:
             if not self.active_connections[project_id]:
                 del self.active_connections[project_id]
 
-        if user_id and user_id in self.user_connections:
-            if websocket in self.user_connections[user_id]:
-                self.user_connections[user_id].remove(websocket)
-            if not self.user_connections[user_id]:
-                del self.user_connections[user_id]
+        # WS-3: resolve user_id from reverse mapping if not provided
+        resolved_user_id = user_id or self._ws_user.get(id(websocket))
+        if resolved_user_id and resolved_user_id in self.user_connections:
+            if websocket in self.user_connections[resolved_user_id]:
+                self.user_connections[resolved_user_id].remove(websocket)
+            if not self.user_connections[resolved_user_id]:
+                del self.user_connections[resolved_user_id]
+
+        # WS-3: cleanup reverse mapping
+        self._ws_user.pop(id(websocket), None)
 
     # ── Local Broadcast (called by RedisListener) ─────────────────────
 
@@ -97,6 +105,7 @@ class ConnectionManager:
                 logger.error("Error sending WS message: %s", e)
                 disconnected.append(ws)
         for ws in disconnected:
+            # WS-3: disconnect() now resolves user_id from _ws_user mapping automatically
             self.disconnect(ws, project_id)
 
     async def _local_send_to_user(self, user_id: str, message: dict):

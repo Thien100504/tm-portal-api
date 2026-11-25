@@ -15,7 +15,6 @@ process it as an in-app notification.
 import json
 import logging
 import uuid
-from typing import Optional
 
 import httpx
 from fastapi import HTTPException
@@ -131,18 +130,18 @@ async def create_and_push(
     db,  # kept for interface compatibility
     *,
     user_id: uuid.UUID,
-    title: Optional[str] = None,
-    title_key: Optional[str] = None,
-    title_params: Optional[dict] = None,
-    event_type: Optional[str] = None,
-    event_data: Optional[dict] = None,
-    message: Optional[str] = None,
-    message_key: Optional[str] = None,
-    message_params: Optional[dict] = None,
+    title: str | None = None,
+    title_key: str | None = None,
+    title_params: dict | None = None,
+    event_type: str | None = None,
+    event_data: dict | None = None,
+    message: str | None = None,
+    message_key: str | None = None,
+    message_params: dict | None = None,
     type: str = "info",
-    entity_type: Optional[str] = None,
-    entity_id: Optional[uuid.UUID] = None,
-    project_id: Optional[uuid.UUID] = None,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
 ) -> dict:
     """
     Publish notification to RabbitMQ for the notification worker to persist.

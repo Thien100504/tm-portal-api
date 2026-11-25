@@ -6,11 +6,10 @@ dashboard.manager branches.
 """
 
 import uuid
-from unittest.mock import MagicMock, patch, AsyncMock
-import pytest
-from fastapi import HTTPException
-from fastapi import BackgroundTasks
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi import BackgroundTasks, HTTPException
 
 # ═══════════════════════════════════════════════════════════════════
 # RBAC DEPENDENCIES

@@ -1,11 +1,11 @@
 """Final coverage push tests."""
 
 import uuid
-from datetime import datetime, timedelta, date
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
-from sqlalchemy.exc import OperationalError
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 
 def _make_user(**kw):
@@ -21,6 +21,7 @@ def _make_user(**kw):
 @pytest.mark.asyncio
 async def test_update_role_operational_error():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdate
 
@@ -68,6 +69,7 @@ async def test_update_role_unhandled_exception():
 @pytest.mark.asyncio
 async def test_update_role_permissions_operational_error():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdatePermissions
 
@@ -157,6 +159,7 @@ async def test_delete_role_unhandled_exception():
 @pytest.mark.asyncio
 async def test_complete_sprint_next_sprint_no_target_id():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()
@@ -177,6 +180,7 @@ async def test_complete_sprint_next_sprint_no_target_id():
 @pytest.mark.asyncio
 async def test_complete_sprint_next_sprint_completed_target():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()
@@ -250,14 +254,15 @@ async def test_get_burndown_with_data():
     db = AsyncMock()
     sprint = MagicMock()
     sprint.id = uuid.uuid4()
-    sprint.started_at = datetime.now() - timedelta(days=2)
+
+    sprint.started_at = datetime.now(UTC) - timedelta(days=2)
     sprint.completed_at = None
     sprint.end_date = None
 
     done_task = MagicMock()
     done_task.estimated_hours = 4.0
     done_task.status = "done"
-    done_task.updated_at = datetime.now() - timedelta(days=1)
+    done_task.updated_at = datetime.now(UTC) - timedelta(days=1)
 
     todo_task = MagicMock()
     todo_task.estimated_hours = 6.0
@@ -348,6 +353,7 @@ async def test_task_update_cascade_sprint_to_subtasks():
 @pytest.mark.asyncio
 async def test_check_circular_dependency_db_error():
     from fastapi import HTTPException
+
     from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()

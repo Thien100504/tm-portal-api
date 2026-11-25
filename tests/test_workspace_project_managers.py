@@ -2,9 +2,9 @@
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock
-from sqlalchemy.exc import IntegrityError, OperationalError
 
 import pytest
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.modules.workspaces.schemas import WorkspaceCreate
 
@@ -88,6 +88,7 @@ async def test_create_workspace_personal_type():
 @pytest.mark.asyncio
 async def test_create_workspace_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -105,6 +106,7 @@ async def test_create_workspace_integrity_error():
 @pytest.mark.asyncio
 async def test_create_workspace_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -138,6 +140,7 @@ async def test_get_workspace_owner():
 @pytest.mark.asyncio
 async def test_get_workspace_not_found():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -169,6 +172,7 @@ async def test_get_workspace_non_owner_member():
 @pytest.mark.asyncio
 async def test_get_workspace_non_owner_denied():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -215,6 +219,7 @@ async def test_check_workspace_owner_success():
 @pytest.mark.asyncio
 async def test_check_workspace_owner_not_found():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -396,6 +401,7 @@ async def test_get_all_members():
 @pytest.mark.asyncio
 async def test_sprint_complete_not_active():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()

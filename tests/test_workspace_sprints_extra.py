@@ -2,9 +2,9 @@
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock
-from sqlalchemy.exc import IntegrityError, OperationalError
 
 import pytest
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.modules.workspaces.schemas import WorkspaceUpdate
 
@@ -58,6 +58,7 @@ async def test_update_workspace_name():
 @pytest.mark.asyncio
 async def test_update_workspace_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -76,6 +77,7 @@ async def test_update_workspace_integrity_error():
 @pytest.mark.asyncio
 async def test_update_workspace_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -116,6 +118,7 @@ async def test_delete_workspace_success():
 @pytest.mark.asyncio
 async def test_delete_workspace_integrity_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -137,6 +140,7 @@ async def test_delete_workspace_integrity_error():
 @pytest.mark.asyncio
 async def test_delete_workspace_operational_error():
     from fastapi import HTTPException
+
     from app.modules.workspaces.manager import workspace_manager
 
     db = AsyncMock()
@@ -216,6 +220,7 @@ async def test_get_workspace_invitations():
 @pytest.mark.asyncio
 async def test_sprint_reopen_not_completed():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()
@@ -229,6 +234,7 @@ async def test_sprint_reopen_not_completed():
 @pytest.mark.asyncio
 async def test_sprint_reopen_already_active_exists():
     from fastapi import HTTPException
+
     from app.modules.sprints.manager import sprint_manager
 
     db = AsyncMock()

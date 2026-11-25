@@ -1,16 +1,17 @@
 import asyncio
-import sys
 import os
+import sys
 
 # Add the current folder to PYTHONPATH so that app can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sqlalchemy import select, update
+
 from app.database import AsyncSessionLocal
-from app.models.user import User
-from app.models.workspace import Workspace
 from app.models.project import Project
 from app.models.task import Task
+from app.models.user import User
+from app.models.workspace import Workspace
 
 
 async def migrate():

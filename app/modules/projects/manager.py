@@ -1,5 +1,5 @@
-from typing import List, Optional
 import uuid
+from datetime import UTC
 
 from fastapi import HTTPException
 from sqlalchemy import and_, select
@@ -18,8 +18,8 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         self,
         db: AsyncSession,
         user_id: uuid.UUID,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> List[Project]:
+        workspace_id: uuid.UUID | None = None,
+    ) -> list[Project]:
         query = (
             select(Project)
             .options(
@@ -80,7 +80,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         return projects
 
     async def attach_member_count(self, db: AsyncSession, project: Project) -> Project:
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
 
         count = await db.scalar(
             select(func.count(ProjectMember.user_id)).where(
@@ -96,7 +96,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
 
     async def get_project_for_user(
         self, db: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Optional[Project]:
+    ) -> Project | None:
         query = (
             select(Project)
             .options(
@@ -135,7 +135,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
 
     async def get_member(
         self, db: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Optional[ProjectMember]:
+    ) -> ProjectMember | None:
         query = select(ProjectMember).where(
             ProjectMember.project_id == project_id,
             ProjectMember.user_id == user_id,
@@ -162,7 +162,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         return member is not None
 
     async def validate_role(
-        self, db: AsyncSession, role_id: Optional[uuid.UUID], workspace_id: uuid.UUID
+        self, db: AsyncSession, role_id: uuid.UUID | None, workspace_id: uuid.UUID
     ) -> None:
         """A project member may only get a live project role of this workspace (or a system one)."""
         if role_id is None:
@@ -181,10 +181,10 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         self, db: AsyncSession, project: Project, user_id: uuid.UUID
     ) -> None:
         """Mark the project deleted instead of removing it with all its tasks."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         project.is_deleted = True
-        project.deleted_at = datetime.now(timezone.utc)
+        project.deleted_at = datetime.now(UTC)
         project.deleted_by = user_id
         await db.flush()
 
@@ -232,7 +232,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
         project_id: uuid.UUID,
         user_id: uuid.UUID,
         project_role: str,
-        role_id: Optional[uuid.UUID] = None,
+        role_id: uuid.UUID | None = None,
     ) -> ProjectMember | None:
         member = await db.scalar(
             select(ProjectMember).where(
@@ -269,7 +269,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
 
     async def get_all_members(
         self, db: AsyncSession, project_id: uuid.UUID
-    ) -> List[ProjectMember]:
+    ) -> list[ProjectMember]:
         query = (
             select(ProjectMember)
             .options(selectinload(ProjectMember.user), selectinload(ProjectMember.role))

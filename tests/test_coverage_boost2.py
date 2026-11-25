@@ -105,9 +105,11 @@ async def test_cancel_invitation_unhandled_exception():
 
 @pytest.mark.asyncio
 async def test_task_update_parent_deadline_earlier_than_subtask():
-    from fastapi import HTTPException
-    from app.modules.tasks.manager import task_manager
     from datetime import date, timedelta
+
+    from fastapi import HTTPException
+
+    from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
     task = MagicMock()
@@ -118,11 +120,10 @@ async def test_task_update_parent_deadline_earlier_than_subtask():
     task.deadline = date.today() + timedelta(days=10)
 
     # Subtask has deadline further out than new parent deadline
-    subtask_deadline = date.today() + timedelta(days=8)
+    subtask = MagicMock()
+    subtask.deadline = date.today() + timedelta(days=8)
     mock_sc = MagicMock()
-    mock_sc.scalars.return_value.__iter__ = MagicMock(
-        return_value=iter([subtask_deadline])
-    )
+    mock_sc.scalars.return_value.all.return_value = [subtask]
     db.execute = AsyncMock(return_value=mock_sc)
 
     # New deadline is earlier than a subtask's deadline
@@ -259,9 +260,10 @@ async def test_get_impacted_descendants_with_results():
 
 @pytest.mark.asyncio
 async def test_cascade_deadlines_with_descendants():
-    from app.modules.tasks.manager import task_manager
     from datetime import date
     from unittest.mock import patch
+
+    from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
     t1 = MagicMock()
@@ -277,8 +279,9 @@ async def test_cascade_deadlines_with_descendants():
 
 @pytest.mark.asyncio
 async def test_cascade_deadlines_no_descendants():
-    from app.modules.tasks.manager import task_manager
     from unittest.mock import patch
+
+    from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
     with patch.object(
@@ -294,8 +297,9 @@ async def test_cascade_deadlines_no_descendants():
 
 @pytest.mark.asyncio
 async def test_add_dependency_success():
-    from app.modules.tasks.manager import task_manager
     from unittest.mock import patch
+
+    from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
     task = MagicMock()
@@ -314,6 +318,7 @@ async def test_add_dependency_success():
 @pytest.mark.asyncio
 async def test_add_dependency_self_dependency():
     from fastapi import HTTPException
+
     from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
@@ -328,19 +333,23 @@ async def test_add_dependency_self_dependency():
 
 @pytest.mark.asyncio
 async def test_add_dependency_circular():
-    from fastapi import HTTPException
-    from app.modules.tasks.manager import task_manager
     from unittest.mock import patch
+
+    from fastapi import HTTPException
+
+    from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
     task = MagicMock()
     task.id = uuid.uuid4()
 
-    with patch.object(
-        task_manager, "check_circular_dependency", new=AsyncMock(return_value=True)
+    with (
+        patch.object(
+            task_manager, "check_circular_dependency", new=AsyncMock(return_value=True)
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await task_manager.add_dependency(db, task, uuid.uuid4())
+        await task_manager.add_dependency(db, task, uuid.uuid4())
     assert exc.value.status_code == 400
 
 
@@ -350,6 +359,7 @@ async def test_add_dependency_circular():
 @pytest.mark.asyncio
 async def test_assign_task_not_member():
     from fastapi import HTTPException
+
     from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
@@ -370,8 +380,9 @@ async def test_assign_task_not_member():
 
 @pytest.mark.asyncio
 async def test_update_position_status_change():
-    from app.modules.tasks.manager import task_manager
     from unittest.mock import patch
+
+    from app.modules.tasks.manager import task_manager
 
     db = AsyncMock()
     task = MagicMock()

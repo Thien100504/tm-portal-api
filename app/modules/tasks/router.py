@@ -1,6 +1,6 @@
-import uuid
 import logging
-from typing import List, Optional
+import uuid
+from datetime import UTC
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,14 +10,15 @@ from app.events.publisher import EventPublisher
 from app.events.task_events import task_events
 from app.models.user import User
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.projects.manager import project_manager
+from app.modules.automation.manager import automation_manager
 from app.modules.projects.dependencies import (
     get_project_access,
     require_project_permission,
 )
+from app.modules.projects.manager import project_manager
 from app.modules.tasks import schemas
 from app.modules.tasks.manager import task_manager
-from app.modules.automation.manager import automation_manager
+from app.modules.workspaces.features import require_feature
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
@@ -72,17 +73,19 @@ async def create_task(
     return task
 
 
-@router.get("/my-day", response_model=List[schemas.TaskResponse])
+@router.get("/my-day", response_model=list[schemas.TaskResponse])
 async def get_my_day_tasks(
-    workspace_id: Optional[uuid.UUID] = Query(None, description="Filter by workspace"),
+    workspace_id: uuid.UUID | None = Query(None, description="Filter by workspace"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     from datetime import date
-    from sqlalchemy import select, and_, func
-    from sqlalchemy.orm import selectinload, noload
-    from app.models.task import Task
+
+    from sqlalchemy import and_, func, select
+    from sqlalchemy.orm import noload, selectinload
+
     from app.models.project import Project
+    from app.models.task import Task
 
     today = date.today()
     stmt = select(Task).options(
@@ -110,7 +113,7 @@ async def get_my_day_tasks(
     return tasks
 
 
-@router.get("", response_model=List[schemas.TaskResponse])
+@router.get("", response_model=list[schemas.TaskResponse])
 async def get_tasks(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -189,11 +192,15 @@ async def delete_task(
             task.project_id, db, current_user
         )
 
-    from datetime import datetime, timezone
-    from sqlalchemy import delete as sa_delete, or_, select, update as sa_update
+    from datetime import datetime
+
+    from sqlalchemy import delete as sa_delete
+    from sqlalchemy import or_, select
+    from sqlalchemy import update as sa_update
+
     from app.models.task import Task, TaskDependency
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # The task and its subtasks (deleted with it) must not keep blocking,
     # or depending on, other tasks
     subtask_ids = (
@@ -469,7 +476,7 @@ async def add_comment(
     return comment
 
 
-@router.get("/{task_id}/comments", response_model=List[schemas.CommentResponse])
+@router.get("/{task_id}/comments", response_model=list[schemas.CommentResponse])
 async def get_comments(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -542,7 +549,11 @@ async def remove_dependency(
 # ═════════════════════════════════════════════════════════════════════
 
 
-@router.post("/{task_id}/ai/breakdown", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{task_id}/ai/breakdown",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_feature("enable_ai"))],
+)
 async def request_ai_breakdown(
     task_id: uuid.UUID,
     background_tasks: BackgroundTasks,
@@ -568,7 +579,11 @@ async def request_ai_breakdown(
     return {"status": "accepted", "message": "AI is breaking down the task"}
 
 
-@router.post("/{task_id}/ai/estimate", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{task_id}/ai/estimate",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_feature("enable_ai"))],
+)
 async def request_ai_estimate(
     task_id: uuid.UUID,
     background_tasks: BackgroundTasks,
@@ -601,7 +616,7 @@ async def request_ai_estimate(
 
 @router.get(
     "/{task_id}/impacted-dependencies",
-    response_model=List[schemas.ImpactedTaskResponse],
+    response_model=list[schemas.ImpactedTaskResponse],
 )
 async def get_impacted_dependencies(
     task_id: uuid.UUID,

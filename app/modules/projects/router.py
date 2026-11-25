@@ -1,5 +1,4 @@
 import uuid
-from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +11,6 @@ from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.manager import user_manager
 from app.modules.projects.dependencies import get_project_access, get_project_pm_access
 from app.modules.projects.manager import project_manager
-from app.modules.rbac.manager import rbac_manager
 from app.modules.projects.schemas import (
     ProjectCreate,
     ProjectMemberCreate,
@@ -21,13 +19,14 @@ from app.modules.projects.schemas import (
     ProjectResponse,
     ProjectUpdate,
 )
+from app.modules.rbac.manager import rbac_manager
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-@router.get("", response_model=List[ProjectResponse])
+@router.get("", response_model=list[ProjectResponse])
 async def get_projects(
-    workspace_id: Optional[uuid.UUID] = None,
+    workspace_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -98,7 +97,7 @@ async def delete_project(
     await project_manager.soft_delete(db, project, current_user.id)
 
 
-@router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
+@router.get("/{project_id}/members", response_model=list[ProjectMemberResponse])
 async def get_members(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

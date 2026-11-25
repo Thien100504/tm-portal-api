@@ -1,13 +1,12 @@
 import uuid
 from datetime import date, datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_SPRINT_DAYS = 365
 
 
-def check_sprint_dates(start: Optional[date], end: Optional[date]) -> Optional[str]:
+def check_sprint_dates(start: date | None, end: date | None) -> str | None:
     """Error code when the planned dates are inconsistent, else None."""
     if start and end:
         if end < start:
@@ -19,9 +18,9 @@ def check_sprint_dates(start: Optional[date], end: Optional[date]) -> Optional[s
 
 class SprintBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    goal: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    goal: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class SprintCreate(SprintBase):
@@ -36,10 +35,10 @@ class SprintCreate(SprintBase):
 
 
 class SprintUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    goal: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    goal: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
 
     @field_validator("name")
     @classmethod
@@ -53,8 +52,8 @@ class SprintResponse(SprintBase):
     id: uuid.UUID
     status: str
     project_id: uuid.UUID
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,7 +66,7 @@ class SprintCompleteRequest(BaseModel):
         description="'backlog' or 'next_sprint'",
         pattern="^(backlog|next_sprint)$",
     )
-    target_sprint_id: Optional[uuid.UUID] = Field(
+    target_sprint_id: uuid.UUID | None = Field(
         None,
         description="Required when incomplete_action = 'next_sprint'",
     )
@@ -81,7 +80,7 @@ class SprintStats(BaseModel):
     incomplete_tasks: int
     completion_rate: float  # 0-100
     velocity: int  # number of done tasks (= done_tasks)
-    actual_days: Optional[int]  # days the sprint actually ran
+    actual_days: int | None  # days the sprint actually ran
 
 
 class BurndownPoint(BaseModel):

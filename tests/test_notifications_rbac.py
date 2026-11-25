@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ─── Notification service (mock httpx) ───────────────────────────────────────
 
 
@@ -32,6 +31,7 @@ async def test_get_for_user_success():
 @pytest.mark.asyncio
 async def test_get_for_user_service_down():
     from fastapi import HTTPException
+
     from app.modules.notifications import service as svc
 
     mock_client = AsyncMock()
@@ -66,6 +66,7 @@ async def test_get_unread_count_success():
 @pytest.mark.asyncio
 async def test_get_unread_count_service_down():
     from fastapi import HTTPException
+
     from app.modules.notifications import service as svc
 
     mock_client = AsyncMock()
@@ -100,6 +101,7 @@ async def test_mark_read_success():
 @pytest.mark.asyncio
 async def test_mark_read_service_down():
     from fastapi import HTTPException
+
     from app.modules.notifications import service as svc
 
     mock_client = AsyncMock()
@@ -135,6 +137,7 @@ async def test_mark_all_read_success():
 @pytest.mark.asyncio
 async def test_mark_all_read_service_down():
     from fastapi import HTTPException
+
     from app.modules.notifications import service as svc
 
     mock_client = AsyncMock()
@@ -237,9 +240,10 @@ async def test_rbac_create_role_no_workspace():
 @pytest.mark.asyncio
 async def test_rbac_create_role_integrity_error():
     from fastapi import HTTPException
+    from sqlalchemy.exc import IntegrityError
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleCreate
-    from sqlalchemy.exc import IntegrityError
 
     db = AsyncMock()
     user = MagicMock()
@@ -258,9 +262,10 @@ async def test_rbac_create_role_integrity_error():
 @pytest.mark.asyncio
 async def test_rbac_create_role_operational_error():
     from fastapi import HTTPException
+    from sqlalchemy.exc import OperationalError
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleCreate
-    from sqlalchemy.exc import OperationalError
 
     db = AsyncMock()
     user = MagicMock()
@@ -282,6 +287,7 @@ async def test_rbac_create_role_operational_error():
 @pytest.mark.asyncio
 async def test_rbac_update_role_not_found():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdate
 
@@ -298,6 +304,7 @@ async def test_rbac_update_role_not_found():
 @pytest.mark.asyncio
 async def test_rbac_update_role_system_role():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
     from app.modules.rbac.schemas import RoleUpdate
 
@@ -347,6 +354,7 @@ async def test_rbac_update_role_success():
 @pytest.mark.asyncio
 async def test_rbac_delete_role_not_found():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
 
     db = AsyncMock()
@@ -361,6 +369,7 @@ async def test_rbac_delete_role_not_found():
 @pytest.mark.asyncio
 async def test_rbac_delete_role_system_default():
     from fastapi import HTTPException
+
     from app.modules.rbac.manager import rbac_manager
 
     db = AsyncMock()
