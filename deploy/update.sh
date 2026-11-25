@@ -17,5 +17,8 @@ after=$($COMPOSE $PROFILES images -q 2>/dev/null | sort | tr '\n' ' ')
 
 if [ "$before" != "$after" ]; then
     echo "$(date -Is) updated to new images"
-    docker image prune -f >/dev/null
+    # remove only this project's old images, never other images on the server
+    for repo in tm-portal-api tm-portal-ui tm-worker.notify; do
+        docker image prune -f --filter "label=org.opencontainers.image.title=$repo" >/dev/null
+    done
 fi
