@@ -1,0 +1,193 @@
+# Task Manager - production stack (one VM, images from GitHub Container Registry)
+#
+#   cp .env.example .env    # then fill in the secrets
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Only the web container publishes a port (WEB_PORT, default 8080). It serves
+# the UI and proxies /api and /ws to the api container. Postgres, Redis and
+# RabbitMQ stay on the internal network.
+# The AI worker needs NVIDIA_API_KEY and is started with: --profile ai
+
+name: taskmanager
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskmanager}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-taskmanager}
+  REDIS_URL: redis://redis:6379/0
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-taskmanager}:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}@rabbitmq:5672/
+  SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+  NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  NOTIFICATION_SERVICE_URL: http://notify:8002
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
+  CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+
+x-api-image: &api-image ${REGISTRY:-ghcr.io/thien100504}/tm-portal-api:${TAG:-latest}
+
+x-depends-infra: &depends-infra
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taskmanager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-taskmanager}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    restart: unless-stopped
+    hostname: tm-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-taskmanager}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+  # ── portal-api ────────────────────────────────────────────────────────────
+  # One-shot: apply migrations and make sure the admin account exists
+  migrate:
+    image: *api-image
+    restart: "no"
+    command: ["sh", "-c", "alembic upgrade head && python scripts/create_admin.py"]
+    environment: *app-env
+    depends_on: *depends-infra
+    logging: *logging
+
+  api:
+    image: *api-image
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      <<: *depends-infra
+      migrate:
+        condition: service_completed_successfully
+    logging: *logging
+
+  automation-worker:
+    image: *api-image
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.automation_worker"]
+    environment: *app-env
+    healthcheck:
+      disable: true
+    depends_on:
+      <<: *depends-infra
+      migrate:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # Celery worker with embedded beat: overdue checks and sprint snapshots
+  scheduler:
+    image: *api-image
+    restart: unless-stopped
+    command: ["celery", "-A", "app.core.celery", "worker", "-B", "-Q", "default", "--concurrency", "1", "--loglevel", "info", "--schedule", "/tmp/celerybeat-schedule"]
+    environment: *app-env
+    healthcheck:
+      disable: true
+    depends_on:
+      <<: *depends-infra
+      migrate:
+        condition: service_completed_successfully
+    logging: *logging
+
+  ai-worker:
+    image: *api-image
+    profiles: ["ai"]
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.ai_worker"]
+    environment: *app-env
+    healthcheck:
+      disable: true
+    depends_on:
+      <<: *depends-infra
+      migrate:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # ── worker.notify ─────────────────────────────────────────────────────────
+  notify:
+    image: ${REGISTRY:-ghcr.io/thien100504}/tm-worker.notify:${TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "main.py", "all"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskmanager}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-taskmanager}
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-taskmanager}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      NOTIFICATION_EXCHANGE: task_manager
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      API_HOST: 0.0.0.0
+      API_PORT: "8002"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ENVIRONMENT: production
+    depends_on:
+      <<: *depends-infra
+      migrate:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # ── portal-ui (nginx: static files + reverse proxy) ───────────────────────
+  web:
+    image: ${REGISTRY:-ghcr.io/thien100504}/tm-portal-ui:${TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    logging: *logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
