@@ -34,6 +34,118 @@ jobs:
       - name: Tests and coverage
         run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=80
 
+  # PRs into develop run the migration and contract checks only when the files
+  # they cover changed; release PRs into main always run them. See docs/ci.md.
+  changes:
+    name: Detect changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      migrations: ${{ steps.filter.outputs.migrations }}
+      contract: ${{ steps.filter.outputs.contract }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: filter
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$BASE_REF" = "main" ]; then
+            echo "migrations=true" >> "$GITHUB_OUTPUT"
+            echo "contract=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          echo "$changed"
+          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+          echo "migrations=$(match '^(alembic/|alembic\.ini$|app/models/|requirements\.txt$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "contract=$(match '^(app/|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
+
+  migrations:
+    name: Migrations
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: taskmanager
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: taskmanager
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taskmanager"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://taskmanager:ci@localhost:5432/taskmanager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Upgrade an empty database to head
+        run: alembic upgrade head
+      - name: Models match the migrations
+        run: alembic check
+      - name: Default roles are seeded
+        run: |
+          python - <<'EOF'
+          import os
+          import psycopg2
+
+          url = os.environ["DATABASE_URL"].replace("postgresql+asyncpg", "postgresql")
+          with psycopg2.connect(url) as conn, conn.cursor() as cur:
+              cur.execute(
+                  "SELECT count(*) FROM roles WHERE is_system_default"
+                  " AND workspace_id IS NULL AND NOT is_deleted"
+              )
+              count = cur.fetchone()[0]
+          print(f"system roles: {count}")
+          assert count >= 5, "migrations must seed the default system roles"
+          EOF
+      - name: Downgrade to base and upgrade again
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+
+  contract:
+    name: UI contract
+    needs: changes
+    if: needs.changes.outputs.contract == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Thien100504/tm-portal-ui
+          ref: develop
+          path: ui
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Generate the OpenAPI spec
+        run: |
+          pip install -r requirements.txt
+          python -c "import json; from app.main import app; json.dump(app.openapi(), open('openapi.json', 'w'))"
+      - name: Every UI call still exists in the API
+        run: |
+          if [ ! -f ui/scripts/check-api-contract.mjs ]; then
+            echo "::warning::tm-portal-ui@develop has no scripts/check-api-contract.mjs yet; skipping the UI contract check"
+            exit 0
+          fi
+          node ui/scripts/check-api-contract.mjs --openapi openapi.json --src ui/src
+
   image:
     name: Docker image
     needs: test
