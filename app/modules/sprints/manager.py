@@ -143,6 +143,9 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
         """
         Reopen a completed sprint (e.g. completed by mistake).
         - Only allowed when no other sprint of the project is active.
+        - Only the most recently started sprint can be reopened: once a later
+          sprint has started, its tasks may have moved on and the older sprint
+          could no longer hand its unfinished tasks to it.
         - Reset status = active, completed_at = None.
         - Tasks moved to the backlog / another sprint when it was completed
           do NOT come back automatically; users move them back if needed.
@@ -163,6 +166,21 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
             raise HTTPException(
                 status_code=400,
                 detail="sprint.error_already_active",
+            )
+
+        newer_query = select(Sprint.id).where(
+            Sprint.project_id == sprint.project_id,
+            Sprint.id != sprint.id,
+            Sprint.is_deleted == False,
+            Sprint.status.in_(("active", "completed")),
+            Sprint.started_at.isnot(None),
+        )
+        if sprint.started_at is not None:
+            newer_query = newer_query.where(Sprint.started_at > sprint.started_at)
+        if (await db.execute(newer_query.limit(1))).scalars().first():
+            raise HTTPException(
+                status_code=400,
+                detail="sprint.error_newer_sprint_started",
             )
 
         sprint.status = "active"
