@@ -22,7 +22,10 @@ FROM python:3.11-slim AS production
 # Metadata
 LABEL maintainer="TaskManager Team"
 LABEL description="Task Manager Backend API"
-LABEL version="0.1.0"
+
+# Release tag or sha-<commit>, passed by CI (see .github/workflows/ci.yml)
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 

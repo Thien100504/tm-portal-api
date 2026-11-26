@@ -19,6 +19,9 @@ class Settings(BaseSettings):
         case_sensitive=True,
     )
 
+    # Release tag (e.g. v1.1.0) or sha-<commit>, baked into the image by CI
+    APP_VERSION: str = "dev"
+
     # --- Database ---
     DATABASE_URL: str = (
         "postgresql+asyncpg://taskmanager:secret@localhost:5432/taskmanager_db"
