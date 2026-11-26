@@ -82,8 +82,11 @@ class RBACManager:
                 # Members without a role_id (e.g. a project's creator) use project_role
                 default_role = PROJECT_ROLE_DEFAULTS.get(prj_member.project_role)
 
-            # The project owner and the workspace owner always have full project rights
-            if await self._owns_project(db, user_id, project_id, workspace_id):
+            # The project owner, the workspace owner and workspace admins always
+            # have full project rights in the workspace's projects
+            if "workspace.admin" in permissions or await self._owns_project(
+                db, user_id, project_id, workspace_id
+            ):
                 default_role = "Project Manager"
 
             if default_role:
@@ -170,6 +173,25 @@ class RBACManager:
         return await self.check_permission(
             db, user_id, "workspace.admin", workspace_id=workspace_id
         )
+
+    async def _holds_role_without_owning(
+        self, db: AsyncSession, user_id: uuid.UUID, role: Role
+    ) -> bool:
+        """True when the user holds this workspace role and does not own the workspace."""
+        owner_id = await db.scalar(
+            select(Workspace.owner_id).where(Workspace.id == role.workspace_id)
+        )
+        if owner_id == user_id:
+            return False
+        holder = await db.scalar(
+            select(WorkspaceMember.user_id).where(
+                WorkspaceMember.workspace_id == role.workspace_id,
+                WorkspaceMember.user_id == user_id,
+                WorkspaceMember.role_id == role.id,
+                WorkspaceMember.is_deleted.is_(False),
+            )
+        )
+        return holder is not None
 
     async def _require_role_admin(
         self, db: AsyncSession, user: User, workspace_id: uuid.UUID | None
@@ -327,6 +349,20 @@ class RBACManager:
                 detail="rbac.some_permissions_invalid",
             )
 
+        drops_admin = any(p.code == "workspace.admin" for p in role.permissions) and (
+            not any(p.code == "workspace.admin" for p in permissions)
+        )
+        if (
+            drops_admin
+            and role.workspace_id
+            and await self._holds_role_without_owning(db, current_user.id, role)
+        ):
+            # Would lock the editor out of the admin rights they are using
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="rbac.cannot_remove_own_admin",
+            )
+
         role.permissions = list(permissions)
         try:
             await db.commit()
@@ -366,6 +402,14 @@ class RBACManager:
             )
 
         await self._require_role_admin(db, current_user, role.workspace_id)
+
+        if role.workspace_id and await self._holds_role_without_owning(
+            db, current_user.id, role
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="rbac.cannot_delete_own_role",
+            )
 
         role.is_deleted = True
         role.deleted_at = datetime.now(UTC)

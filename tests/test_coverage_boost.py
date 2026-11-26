@@ -722,8 +722,17 @@ async def test_delete_role_with_workspace_access():
     db.scalar = AsyncMock(return_value=mock_role)
     db.commit = AsyncMock()
 
-    with patch.object(
-        rbac_manager, "_check_workspace_admin_access", new=AsyncMock(return_value=True)
+    with (
+        patch.object(
+            rbac_manager,
+            "_check_workspace_admin_access",
+            new=AsyncMock(return_value=True),
+        ),
+        patch.object(
+            rbac_manager,
+            "_holds_role_without_owning",
+            new=AsyncMock(return_value=False),
+        ),
     ):
         await rbac_manager.delete_role(db, uuid.uuid4(), _make_user())
     assert mock_role.is_deleted is True
