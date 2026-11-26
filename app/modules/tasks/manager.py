@@ -200,6 +200,11 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             )
             if parent_task.parent_task_id:
                 raise HTTPException(status_code=400, detail="task.subtask_depth_limit")
+            # a new subtask lands in its parent's epic and sprint unless told otherwise
+            if obj_in.epic_id is None:
+                obj_in.epic_id = parent_task.epic_id
+            if obj_in.sprint_id is None:
+                obj_in.sprint_id = parent_task.sprint_id
 
         from app.models.project import Project
 

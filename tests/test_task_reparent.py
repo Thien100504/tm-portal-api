@@ -153,3 +153,27 @@ async def test_story_cannot_be_moved_under_a_parent_via_type_change():
             obj_in={"type": "story", "parent_task_id": uuid.uuid4()},
         )
     assert exc.value.detail == "task.story_cannot_be_subtask"
+
+
+@pytest.mark.asyncio
+async def test_new_subtask_inherits_parent_epic_and_sprint(monkeypatch):
+    parent = _task(type="story", epic_id=uuid.uuid4(), sprint_id=uuid.uuid4())
+    db = _db(parent)
+    seen = {}
+
+    async def stop(_db, project_id, workspace_id, **refs):
+        seen.update(refs)
+        raise RuntimeError("stop")
+
+    db.execute = AsyncMock(return_value=MagicMock(scalar=lambda: 0))
+    monkeypatch.setattr(task_manager, "_check_refs", stop)
+    with pytest.raises(RuntimeError):
+        await task_manager.create_task(
+            db,
+            obj_in=schemas.TaskCreate(
+                title="t", project_id=PROJECT, parent_task_id=parent.id
+            ),
+            creator_id=uuid.uuid4(),
+        )
+    assert seen["epic_id"] == parent.epic_id
+    assert seen["sprint_id"] == parent.sprint_id
