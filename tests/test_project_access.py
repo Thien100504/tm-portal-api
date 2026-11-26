@@ -238,6 +238,20 @@ async def test_cannot_create_project_in_a_foreign_workspace():
 
 
 @pytest.mark.asyncio
+async def test_cannot_create_project_without_a_workspace():
+    with patch.object(
+        project_manager, "create_project_with_owner", new=AsyncMock()
+    ) as create:
+        with pytest.raises(HTTPException) as exc:
+            await projects_router.create_project(
+                ProjectCreate(name="p"), MagicMock(), _user()
+            )
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "project.workspace_required"
+    create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_workspace_owner_counts_as_member():
     owner = uuid.uuid4()
     db = MagicMock()
