@@ -189,6 +189,9 @@ async def test_automation_update_name_and_conditions():
     db = AsyncMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
+    db.execute = AsyncMock(
+        return_value=MagicMock(**{"scalars.return_value.all.return_value": []})
+    )
     rule = _make_rule()
 
     data = AutomationRuleUpdate(name="New Name", conditions={"priority": "high"})
@@ -219,6 +222,9 @@ async def test_automation_update_is_active():
     db = AsyncMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
+    db.execute = AsyncMock(
+        return_value=MagicMock(**{"scalars.return_value.all.return_value": []})
+    )
     rule = _make_rule(is_active=True)
     data = AutomationRuleUpdate(is_active=False)
     await automation_manager.update(db, rule, data)
