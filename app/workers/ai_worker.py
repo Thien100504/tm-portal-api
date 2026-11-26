@@ -25,9 +25,8 @@ from sqlalchemy import func, select
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.logging_config import correlation_id_var, setup_logging
-from app.models.project import Project
 from app.models.task import Task
-from app.models.workspace import Workspace
+from app.modules.ai import service as ai_service
 
 # Module-level event loop reference – assigned in main() before use
 _worker_loop: asyncio.AbstractEventLoop | None = None
@@ -193,13 +192,9 @@ Example:
         parent_project_id = parent_task.project_id
         parent_sprint_id = parent_task.sprint_id
 
-        # Personal workspaces: AI subtasks are assigned to the workspace owner
-        auto_assignee_id = None
-        project = await db.get(Project, parent_project_id)
-        if project and project.workspace_id:
-            workspace = await db.get(Workspace, project.workspace_id)
-            if workspace and workspace.type == "personal":
-                auto_assignee_id = workspace.owner_id
+        auto_assignee_id = await ai_service.breakdown_assignee(
+            db, parent_task, actor_uuid
+        )
 
         # Replace only the subtasks an earlier AI breakdown created that are still
         # "todo"; subtasks written by people are kept
