@@ -133,6 +133,9 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
     async def create_task(
         self, db: AsyncSession, obj_in: TaskCreate, creator_id: uuid.UUID
     ) -> Task:
+        if obj_in.type == "story" and obj_in.parent_task_id:
+            raise HTTPException(status_code=400, detail="task.story_cannot_be_subtask")
+
         max_pos_query = select(func.max(Task.position)).where(
             Task.project_id == obj_in.project_id,
             Task.status == obj_in.status,
@@ -198,10 +201,13 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         # The new deadline if it is being updated
         new_deadline = None
         if isinstance(obj_in, dict):
-            new_deadline = obj_in.get("deadline", db_obj.deadline)
+            update_data = obj_in
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
-            new_deadline = update_data.get("deadline", db_obj.deadline)
+        new_deadline = update_data.get("deadline", db_obj.deadline)
+
+        if update_data.get("type") == "story" and db_obj.parent_task_id:
+            raise HTTPException(status_code=400, detail="task.story_cannot_be_subtask")
 
         # 1. Rule: a subtask's deadline cannot be later than its parent's
         if db_obj.parent_task_id and new_deadline:

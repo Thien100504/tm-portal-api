@@ -60,6 +60,7 @@ def _make_task(**kw):
     t.creator_id = kw.get("creator_id", uuid.uuid4())
     t.created_by = kw.get("created_by", None)
     t.status = kw.get("status", "todo")
+    t.type = kw.get("type", "task")
     t.priority = kw.get("priority", "medium")  # string, not int
     t.sprint_id = kw.get("sprint_id", None)
     t.parent_task_id = kw.get("parent_task_id", None)

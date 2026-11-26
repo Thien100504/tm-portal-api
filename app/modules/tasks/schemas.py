@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TaskStatus = Literal["todo", "in_progress", "review", "done"]
+TaskType = Literal["story", "task", "bug"]
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -18,6 +19,7 @@ def _aware(value: datetime | None) -> datetime | None:
 class TaskBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
+    type: TaskType = "task"
     priority: str = Field(default="medium")
     deadline: datetime | None = None
     estimated_hours: float | None = Field(None, ge=0)
@@ -70,6 +72,7 @@ class TaskCreate(TaskBase):
 class TaskUpdate(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
+    type: TaskType | None = None
     priority: str | None = None
     deadline: datetime | None = None
     estimated_hours: float | None = Field(None, ge=0)
