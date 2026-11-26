@@ -81,6 +81,8 @@ class TaskUpdate(BaseModel):
     position: int | None = None
     sprint_id: UUID | None = None
     epic_id: UUID | None = None
+    # a task id attaches the task under that parent, null detaches it
+    parent_task_id: UUID | None = None
     auto_start: bool | None = None
 
     @field_validator("deadline")
