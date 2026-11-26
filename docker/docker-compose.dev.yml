@@ -6,10 +6,12 @@ version: '3.8'
 # Data is persisted in named volumes. Even if containers are removed or
 # Docker Desktop is restarted, the data stays intact.
 #
-# Start:       docker compose -f docker-compose.dev.yml up -d
-# Stop:        docker compose -f docker-compose.dev.yml down
-# Wipe data:   docker compose -f docker-compose.dev.yml down -v
+# Start:       docker compose -p taskmanager -f docker-compose.dev.yml up -d
+# Stop:        docker compose -p taskmanager -f docker-compose.dev.yml down
+# Wipe data:   docker compose -p taskmanager -f docker-compose.dev.yml down -v
 # ─────────────────────────────────────────────────────────────────────────────
+
+name: taskmanager
 
 services:
 
@@ -109,7 +111,7 @@ services:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Named Volumes — data lives independently of the container lifecycle
-# Remove everything: docker compose -f docker-compose.dev.yml down -v
+# Remove everything: docker compose -p taskmanager -f docker-compose.dev.yml down -v
 # ─────────────────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:

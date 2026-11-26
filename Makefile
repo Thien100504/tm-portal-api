@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate reset dev-backend dev-frontend test create-admin lint format build deploy
+.PHONY: up down logs migrate reset seed dev-backend dev-frontend test create-admin lint format build deploy
 
 # ─────────────────────────────────────────────
 # Development - Docker Services
@@ -6,22 +6,26 @@
 
 ## Start development infrastructure (postgres, redis, rabbitmq)
 up:
-	docker compose -f docker/docker-compose.dev.yml up -d
+	docker compose -p taskmanager -f docker/docker-compose.dev.yml up -d
 
 ## Stop development infrastructure
 down:
-	docker compose -f docker/docker-compose.dev.yml down
+	docker compose -p taskmanager -f docker/docker-compose.dev.yml down
 
 ## Follow logs of development infrastructure
 logs:
-	docker compose -f docker/docker-compose.dev.yml logs -f
+	docker compose -p taskmanager -f docker/docker-compose.dev.yml logs -f
 
-## Reset: destroy volumes, recreate, and run migrations
+## Reset: destroy volumes, recreate, and seed all data
 reset:
-	docker compose -f docker/docker-compose.dev.yml down -v
-	docker compose -f docker/docker-compose.dev.yml up -d
+	docker compose -p taskmanager -f docker/docker-compose.dev.yml down -v
+	docker compose -p taskmanager -f docker/docker-compose.dev.yml up -d
 	Timeout /T 5 /Nobreak >NUL 2>&1 || sleep 5
-	alembic upgrade head
+	python -m scripts.seed_all
+
+## Seed: migrate + seed roles + seed admin (after containers are up)
+seed:
+	python -m scripts.seed_all
 
 # ─────────────────────────────────────────────
 # Database
