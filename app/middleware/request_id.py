@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.request_context import client_id_var, parse_client_id
 from app.logging_config import correlation_id_var
 
 logger = logging.getLogger("request")
@@ -27,6 +28,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
 
         token = correlation_id_var.set(request_id)
+        client_token = client_id_var.set(
+            parse_client_id(request.headers.get("X-Client-Id"))
+        )
 
         start = time.monotonic()
         try:
@@ -34,6 +38,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             duration_ms = round((time.monotonic() - start) * 1000, 1)
             correlation_id_var.reset(token)
+            client_id_var.reset(client_token)
 
         response.headers["X-Request-ID"] = request_id
 
