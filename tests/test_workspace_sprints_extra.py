@@ -343,42 +343,6 @@ async def test_create_project_with_owner():
     db.add.assert_called()
 
 
-@pytest.mark.asyncio
-async def test_create_project_auto_workspace():
-    from app.modules.projects.manager import project_manager
-    from app.modules.projects.schemas import ProjectCreate
-
-    db = AsyncMock()
-    owner_id = uuid.uuid4()
-
-    obj_in = ProjectCreate(name="Test Project")  # no workspace_id
-
-    mock_ws = MagicMock()
-    mock_ws.id = uuid.uuid4()
-
-    call_count = 0
-
-    def get_side(model, id_val):
-        nonlocal call_count
-        call_count += 1
-        return mock_ws
-
-    db.get = AsyncMock(side_effect=get_side)
-    db.add = MagicMock()
-    db.flush = AsyncMock()
-    db.refresh = AsyncMock()
-
-    mock_role = MagicMock()
-    mock_scalars = MagicMock()
-    mock_scalars.first.return_value = mock_role
-    mock_result = MagicMock()
-    mock_result.scalars.return_value = mock_scalars
-    db.execute.return_value = mock_result
-
-    await project_manager.create_project_with_owner(db, obj_in, owner_id)
-    db.add.assert_called()
-
-
 # ─── ProjectManager.add_member ────────────────────────────────────────────────
 
 

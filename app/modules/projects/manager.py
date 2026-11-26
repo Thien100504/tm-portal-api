@@ -191,30 +191,7 @@ class ProjectManager(BaseManager[Project, ProjectCreate, ProjectUpdate]):
     async def create_project_with_owner(
         self, db: AsyncSession, obj_in: ProjectCreate, owner_id: uuid.UUID
     ) -> Project:
-        workspace_id = obj_in.workspace_id
-        if not workspace_id:
-            from app.models.workspace import Workspace
-
-            # Find the user's default personal workspace
-            ws_stmt = (
-                select(Workspace.id)
-                .where(Workspace.owner_id == owner_id, Workspace.type == "personal")
-                .limit(1)
-            )
-            ws_id = (await db.execute(ws_stmt)).scalar_one_or_none()
-            if not ws_id:
-                ws = Workspace(
-                    name="Personal Workspace", type="personal", owner_id=owner_id
-                )
-                db.add(ws)
-                await db.flush()
-                ws_id = ws.id
-            workspace_id = ws_id
-
-        project_data = obj_in.model_dump()
-        project_data["workspace_id"] = workspace_id
-
-        project = Project(**project_data, owner_id=owner_id)
+        project = Project(**obj_in.model_dump(), owner_id=owner_id)
         db.add(project)
         await db.flush()
 
