@@ -4,6 +4,8 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.automation import AutomationRule
+from app.models.epic import Epic
 from app.models.project import Project
 from app.models.sprint import Sprint
 from app.models.task import Task
@@ -41,19 +43,12 @@ def require_feature(feature_key: str):
                     project = await db.get(Project, task.project_id)
                     if project:
                         workspace_id = project.workspace_id
-            # Note: epics and rules might need similar resolution if they are not in the standard models imported here.
-            # We can dynamically import them to avoid circular imports if needed.
             elif epic_id:
-                from app.modules.epics.models import Epic
-
                 epic = await db.get(Epic, uuid.UUID(epic_id))
                 if epic:
-                    project = await db.get(Project, epic.project_id)
-                    if project:
-                        workspace_id = project.workspace_id
+                    # workspace-level epics have no project
+                    workspace_id = epic.workspace_id
             elif rule_id:
-                from app.modules.automation.models import AutomationRule
-
                 rule = await db.get(AutomationRule, uuid.UUID(rule_id))
                 if rule:
                     project = await db.get(Project, rule.project_id)
