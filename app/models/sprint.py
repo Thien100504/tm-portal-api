@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, SoftDeleteMixin, UUIDMixin
@@ -32,6 +33,9 @@ class Sprint(UUIDMixin, SoftDeleteMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # The sprint's tasks when it was completed, so its report does not change
+    # when unfinished tasks later move to the backlog or another sprint
+    completion_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     project: Mapped[Project] = relationship("Project", back_populates="sprints")
