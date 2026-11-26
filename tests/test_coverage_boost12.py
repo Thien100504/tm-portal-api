@@ -206,8 +206,8 @@ def test_tasks_create_201():
     try:
         with (
             patch(
-                "app.modules.tasks.router.get_project_access",
-                new=AsyncMock(return_value=proj),
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
             ),
             patch(
                 "app.modules.tasks.manager.task_manager.create_task",
@@ -249,8 +249,8 @@ def test_tasks_update_200():
                 new=AsyncMock(return_value=task),
             ),
             patch(
-                "app.modules.tasks.router.get_project_access",
-                new=AsyncMock(return_value=proj),
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
             ),
             patch(
                 "app.modules.tasks.manager.task_manager.update",
@@ -281,6 +281,10 @@ def test_tasks_update_status_200():
     member.project_role = "developer"
     try:
         with (
+            patch(
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
+            ),
             patch(
                 "app.modules.tasks.manager.task_manager.get_by_id",
                 new=AsyncMock(return_value=task),
@@ -336,6 +340,10 @@ def test_tasks_update_status_done_200():
     try:
         with (
             patch(
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
+            ),
+            patch(
                 "app.modules.tasks.manager.task_manager.get_by_id",
                 new=AsyncMock(return_value=task),
             ),
@@ -386,8 +394,8 @@ def test_tasks_update_position_200():
                 new=AsyncMock(return_value=task),
             ),
             patch(
-                "app.modules.tasks.router.get_project_access",
-                new=AsyncMock(return_value=proj),
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
             ),
             patch(
                 "app.modules.tasks.manager.task_manager.update_position",
@@ -416,6 +424,10 @@ def test_tasks_assign_200():
     task = _make_task(project_id=proj.id, assignee_id=assignee_id)
     try:
         with (
+            patch(
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
+            ),
             patch(
                 "app.modules.tasks.manager.task_manager.get_by_id",
                 new=AsyncMock(return_value=task),
@@ -454,6 +466,10 @@ def test_tasks_assign_null_200():
     task = _make_task(project_id=proj.id, assignee_id=None)
     try:
         with (
+            patch(
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
+            ),
             patch(
                 "app.modules.tasks.manager.task_manager.get_by_id",
                 new=AsyncMock(return_value=task),
