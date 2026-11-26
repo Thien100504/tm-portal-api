@@ -15,6 +15,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.request_context import client_id_var
 from app.events.pipeline import (
     EventContext,
     EventHandler,
@@ -135,6 +136,9 @@ class WebSocketHandler(EventHandler):
         }
         if ctx.event_type == "task.commented":
             ws_payload["task_id"] = str(ctx.task.id)
+        client_id = client_id_var.get()
+        if client_id:
+            ws_payload["client_id"] = client_id
 
         await manager.broadcast_to_project(ctx.task.project_id, ws_payload)
 
