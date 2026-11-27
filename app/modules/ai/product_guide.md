@@ -16,7 +16,7 @@ described here, say TaskManager does not have it (do not invent screens such as
   Roadmap, Automation, Settings.
 
 ## Roles and permissions
-- Workspace Settings → Members: invite people by email, change their role, remove
+- "Workspace Settings" is an item in the left sidebar (under System). Workspace Settings → Members: invite people by email, change their role, remove
   them. Workspace Settings → Roles & Permissions: create roles and tick permissions
   (e.g. task.create, task.update, task.delete, sprint.manage, project.settings).
 - A role with workspace.admin acts as Project Manager in every project of the
@@ -30,7 +30,7 @@ described here, say TaskManager does not have it (do not invent screens such as
   Priority: high / medium / low. Optional: assignee, deadline, story points,
   estimated hours, epic, parent story.
 - Create: Kanban → "Add task" (or "+" on a column), or in the Calendar view click a day.
-- Open a task card for its details: description, status, priority, assignee,
+- Click a task card to open its details (delete is in the details too): description, status, priority, assignee,
   deadline, sub-tasks ("+ Add sub-task..."), comments, dependencies ("Add
   dependency..."; a task with an unfinished dependency is Blocked) and Auto-start
   (moves to In Progress when its dependencies are done).
