@@ -17,7 +17,13 @@ from app.models.sprint import Sprint
 from app.models.task import Task
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.modules.ai.service import CHAT_HISTORY_MESSAGES, reply_language, run_chat
+from app.modules.ai.service import (
+    CHAT_HISTORY_MESSAGES,
+    GUIDE_RULE,
+    PRODUCT_GUIDE,
+    reply_language,
+    run_chat,
+)
 from app.modules.projects.manager import project_manager
 
 MAX_PROJECTS_IN_PROMPT = 30
@@ -209,6 +215,11 @@ TOOL USAGE INSTRUCTIONS:
 1. Use list_projects and list_tasks to look up anything not listed above. Never invent projects, tasks or people.
 2. This workspace chat can only read. To create, change or delete tasks, sprints or rules, tell the user to open that project's chat.
 3. Never show raw IDs.
+
+HOW TO USE TASKMANAGER:
+{GUIDE_RULE}
+
+{PRODUCT_GUIDE}
 
 COMMUNICATION INSTRUCTIONS:
 - Reply in {reply_language(user_content, lang)} (the language of the user's latest message), even if earlier messages used another language. Be concise, practical and helpful.

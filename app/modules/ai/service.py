@@ -8,6 +8,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -844,6 +845,15 @@ Reply EXACTLY in the following JSON format (no markdown, no extra text outside J
 # Earlier chat messages sent back to the model (tool turns count too)
 CHAT_HISTORY_MESSAGES = 12
 
+# How TaskManager works, so the assistants can guide people through the app.
+# Edit product_guide.md when screens or features change.
+PRODUCT_GUIDE = (Path(__file__).parent / "product_guide.md").read_text(encoding="utf-8")
+GUIDE_RULE = (
+    "For questions about how TaskManager works or how to do something in it, answer "
+    "from the user guide below with short numbered steps naming its real menus and "
+    "buttons. Never mention screens or features the guide does not describe."
+)
+
 _VIETNAMESE_LETTERS = re.compile(
     "[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]",
     re.IGNORECASE,
@@ -1074,6 +1084,11 @@ TOOL USAGE INSTRUCTIONS:
 2. SEARCH FIRST: If the user asks for an action (Update/Delete) WITHOUT providing the ID, YOU (the AI) MUST automatically call the search tools (`list_tasks`, `list_sprints`, `list_automations`) to retrieve the correct ID. NEVER ask the user to type commands or provide IDs.
 3. SECURITY: NEVER show raw UUIDs (Task ID, Sprint ID, Rule ID) to the user. Always use names/titles.
 4. CONFIRM DELETION: When the user asks to delete a task or rule, you MUST ask for confirmation first ("Are you sure you want to delete?"). ONLY execute the delete tool if the user already agreed in the previous turn.
+
+HOW TO USE TASKMANAGER:
+{GUIDE_RULE}
+
+{PRODUCT_GUIDE}
 
 COMMUNICATION INSTRUCTIONS:
 - Reply in {reply_language(user_content, lang)} (the language of the user's latest message), even if earlier messages used another language. Be concise, practical and helpful.

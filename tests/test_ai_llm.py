@@ -552,3 +552,24 @@ async def test_an_unknown_status_is_rejected_before_touching_the_task():
 
     assert result.startswith("Error: status must be one of")
     update_status.assert_not_awaited()
+
+
+def test_the_product_guide_covers_the_main_screens():
+    guide = ai_service.PRODUCT_GUIDE
+    for screen in (
+        "Kanban",
+        "Sprints",
+        "Roadmap",
+        "Automation",
+        "Workspace Settings",
+        "Ctrl+J",
+    ):
+        assert screen in guide
+
+
+@pytest.mark.asyncio
+async def test_project_chat_can_explain_how_to_use_the_app():
+    _, create, _, _ = await _run_chat([[_chunk("Bước 1...")]])
+    system_prompt = create.await_args_list[0].kwargs["messages"][0]["content"]
+    assert ai_service.GUIDE_RULE in system_prompt
+    assert ai_service.PRODUCT_GUIDE in system_prompt

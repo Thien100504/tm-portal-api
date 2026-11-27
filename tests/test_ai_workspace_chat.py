@@ -382,6 +382,7 @@ async def test_workspace_chat_prompts_with_the_projects_and_streams_the_reply():
         in captured["prompt"]
     )
     assert "can only read" in captured["prompt"]
+    assert workspace_chat.PRODUCT_GUIDE in captured["prompt"]
     assert captured["tools"] is workspace_chat.WORKSPACE_TOOLS
     saved = db.add.call_args.args[0]
     assert (saved.role, saved.content) == ("user", "Which project is behind?")
