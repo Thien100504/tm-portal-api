@@ -3,6 +3,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from fastapi import HTTPException
 from sqlalchemy import desc, select
 
 # from app.modules.automation.schemas import AutomationRuleCreate # Not needed for basic toggle/list
@@ -85,7 +86,10 @@ TOOLS_SCHEMA = [
                 "type": "object",
                 "properties": {
                     "task_id": {"type": "string"},
-                    "status": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["todo", "in_progress", "review", "done"],
+                    },
                     "priority": {
                         "type": "string",
                         "enum": ["low", "medium", "high", "urgent"],
@@ -207,6 +211,9 @@ TOOL_PERMISSIONS = {
     "toggle_automation": "project.settings",
     "delete_automation": "project.settings",
 }
+
+
+TASK_STATUSES = ("todo", "in_progress", "review", "done")
 
 
 def _toast(kind: str, key: str, **params) -> str:
@@ -370,19 +377,27 @@ async def dispatch_tool_call(
             if not task or task.project_id != project_id:
                 return "Error: Task not found."
 
-            update_data = {}
-            if "status" in args:
-                update_data["status"] = args["status"]
-            if "priority" in args:
-                update_data["priority"] = args["priority"]
-            if "title" in args:
-                update_data["title"] = args["title"]
+            status = args.get("status")
+            if status is not None and status not in TASK_STATUSES:
+                return f"Error: status must be one of {', '.join(TASK_STATUSES)}."
 
-            task_upd = TaskUpdate(**update_data)
-            await task_manager.update(db, db_obj=task, obj_in=task_upd)
+            update_data = {k: args[k] for k in ("priority", "title") if k in args}
+            if update_data:
+                await task_manager.update(
+                    db, db_obj=task, obj_in=TaskUpdate(**update_data)
+                )
+            # TaskUpdate has no status: a status change goes through the same
+            # rules as moving the card (subtasks, dependencies), or it was lost
+            if status and status != task.status:
+                await task_manager.update_status(db, task, status)
             await db.commit()
             toast = _toast("success", "chatbot.toast.task_updated", title=task.title)
-            return f"{toast}\nUpdated task: {task.title}"
+            return f"{toast}\nUpdated task: {task.title} (status: {task.status})"
+        except HTTPException as e:
+            await db.rollback()
+            # e.g. task.error_subtasks_not_done: tell the user why, don't claim success
+            toast = _toast("error", "chatbot.toast.task_update_failed")
+            return f"{toast}\nError: the update was refused ({e.detail})."
         except Exception as e:
             await db.rollback()
             return str(e)

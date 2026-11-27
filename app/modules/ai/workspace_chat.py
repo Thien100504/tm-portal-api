@@ -17,7 +17,7 @@ from app.models.sprint import Sprint
 from app.models.task import Task
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.modules.ai.service import CHAT_HISTORY_MESSAGES, run_chat
+from app.modules.ai.service import CHAT_HISTORY_MESSAGES, reply_language, run_chat
 from app.modules.projects.manager import project_manager
 
 MAX_PROJECTS_IN_PROMPT = 30
@@ -198,7 +198,6 @@ async def chat_with_workspace(
     stats = await project_stats(db, projects)
     shown = stats[:MAX_PROJECTS_IN_PROMPT]
     more = len(stats) - len(shown)
-    is_vi = lang == "vi"
 
     system_prompt = f"""You are the AI assistant of the workspace "{workspace.name if workspace else ""}" in the TaskManager project management system.
 You can see every project the user can open in this workspace.
@@ -212,7 +211,7 @@ TOOL USAGE INSTRUCTIONS:
 3. Never show raw IDs.
 
 COMMUNICATION INSTRUCTIONS:
-- Reply in the language of the user's latest message; if it is unclear (e.g. only a project name), reply in {"Vietnamese" if is_vi else "English"}. Be concise, practical and helpful.
+- Reply in {reply_language(user_content, lang)} (the language of the user's latest message), even if earlier messages used another language. Be concise, practical and helpful.
 - Limit responses to 150 words unless detailed explanation is needed.
 - For casual conversation (greetings, jokes, etc.), reply naturally and flexibly.
 """

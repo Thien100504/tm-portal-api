@@ -5,6 +5,7 @@ Collects project data → computes the health score and insights → (optionally
 """
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -843,6 +844,24 @@ Reply EXACTLY in the following JSON format (no markdown, no extra text outside J
 # Earlier chat messages sent back to the model (tool turns count too)
 CHAT_HISTORY_MESSAGES = 12
 
+_VIETNAMESE_LETTERS = re.compile(
+    "[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]",
+    re.IGNORECASE,
+)
+_LATIN_WORD = re.compile(r"[A-Za-z]{2,}")
+
+
+def reply_language(message: str, ui_lang: str) -> str:
+    """
+    The language to answer in: the one the user wrote in, else the UI's.
+    Decided here because models drift to the language of the conversation.
+    """
+    if _VIETNAMESE_LETTERS.search(message or ""):
+        return "Vietnamese"
+    if len(_LATIN_WORD.findall(message or "")) >= 3:
+        return "English"
+    return "Vietnamese" if ui_lang == "vi" else "English"
+
 
 def _complete_tool_turns(messages: list[dict]) -> list[dict]:
     """
@@ -1038,8 +1057,6 @@ async def chat_with_project(
         except Exception:
             pass  # fail-open
 
-    is_vi = lang == "vi"
-
     system_prompt = f"""You are an intelligent AI assistant for the TaskManager project management system.
 You have access to project data and help users manage their work more effectively.
 
@@ -1059,7 +1076,7 @@ TOOL USAGE INSTRUCTIONS:
 4. CONFIRM DELETION: When the user asks to delete a task or rule, you MUST ask for confirmation first ("Are you sure you want to delete?"). ONLY execute the delete tool if the user already agreed in the previous turn.
 
 COMMUNICATION INSTRUCTIONS:
-- Reply in the language of the user's latest message; if it is unclear (e.g. only a task name), reply in {"Vietnamese" if is_vi else "English"}. Be concise, practical and helpful.
+- Reply in {reply_language(user_content, lang)} (the language of the user's latest message), even if earlier messages used another language. Be concise, practical and helpful.
 - Limit responses to 150 words unless detailed explanation is needed.
 - Do not invent PROJECT INFORMATION. For casual conversation (greetings, jokes, etc.), reply naturally and flexibly.
 """
