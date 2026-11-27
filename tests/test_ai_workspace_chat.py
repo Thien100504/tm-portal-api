@@ -385,3 +385,11 @@ async def test_workspace_chat_prompts_with_the_projects_and_streams_the_reply():
     assert captured["tools"] is workspace_chat.WORKSPACE_TOOLS
     saved = db.add.call_args.args[0]
     assert (saved.role, saved.content) == ("user", "Which project is behind?")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured", [True, False])
+async def test_status_tells_the_ui_whether_ai_can_answer(configured):
+    with patch.object(llm, "is_configured", return_value=configured):
+        status = await chat_router.chat_status(SimpleNamespace(id=uuid.uuid4()))
+    assert status.configured is configured

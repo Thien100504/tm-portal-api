@@ -1,6 +1,7 @@
 """
 Assistant sidebar: chat sessions for a workspace or one of its projects.
 
+- GET    /chat/status                               is an AI provider configured
 - GET    /chat/sessions?workspace_id=&project_id=   list (no project_id = workspace chats)
 - POST   /chat/sessions                             create
 - PATCH  /chat/sessions/{id}                        rename
@@ -25,11 +26,18 @@ from app.modules.ai.schemas import (
     ChatSessionRename,
     ChatSessionResponse,
     ChatSessionScopeCreate,
+    ChatStatusResponse,
 )
 from app.modules.ai.workspace_chat import chat_with_workspace
 from app.modules.auth.dependencies import get_current_active_user
 
 router = APIRouter(prefix="/chat", tags=["ai"])
+
+
+@router.get("/status", response_model=ChatStatusResponse)
+async def chat_status(current_user: User = Depends(get_current_active_user)):
+    """Lets the UI show the assistant as unavailable before anyone types."""
+    return ChatStatusResponse(configured=llm.is_configured())
 
 
 @router.get("/sessions", response_model=list[ChatSessionResponse])
