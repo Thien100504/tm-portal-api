@@ -11,6 +11,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
+from app.modules.ai import pending_actions
 from app.models.user import User
 from app.modules.automation.manager import automation_manager
 from app.modules.sprints.manager import sprint_manager
@@ -47,21 +48,17 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "delete_tasks",
-            "description": "Delete one or multiple tasks. ONLY call when you have the task IDs. You MUST set confirmed=true ONLY if the user explicitly agreed to delete them. If the user hasn't confirmed yet, set confirmed=false.",
+            "description": "Ask to delete one or more tasks (look up their IDs first). The app then shows the user a confirmation card; nothing is deleted until the user presses Delete on it.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "task_ids": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of task IDs to delete",
-                    },
-                    "confirmed": {
-                        "type": "boolean",
-                        "description": "Set to true ONLY IF the user explicitly confirmed (e.g. 'Yes', or the same in their language) in their previous message. Otherwise, set to false.",
+                        "description": "IDs of the tasks to delete",
                     },
                 },
-                "required": ["task_ids", "confirmed"],
+                "required": ["task_ids"],
             },
         },
     },
@@ -182,17 +179,13 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "delete_automation",
-            "description": "Delete an automation rule. You MUST set confirmed=true ONLY if the user explicitly agreed to delete it.",
+            "description": "Ask to delete an automation rule. The app then shows the user a confirmation card; nothing is deleted until the user presses Delete on it.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "rule_id": {"type": "string"},
-                    "confirmed": {
-                        "type": "boolean",
-                        "description": "Set to true ONLY IF the user explicitly confirmed deletion. Otherwise set to false.",
-                    },
                 },
-                "required": ["rule_id", "confirmed"],
+                "required": ["rule_id"],
             },
         },
     },
@@ -226,6 +219,77 @@ DATA_NOTICE = (
 )
 
 
+def _confirm_card(token: str, action: dict) -> str:
+    """Marker the chat UI turns into a confirmation card with Delete / Cancel."""
+    payload = {"token": token, "kind": action["kind"], "titles": action["titles"]}
+    return f"[confirm]{json.dumps(payload, ensure_ascii=False)}[/confirm]"
+
+
+async def _ask_confirmation(
+    action: dict, user: User, session_id: uuid.UUID | None
+) -> str:
+    """Store a delete for the user to confirm; the model can never carry it out."""
+    if session_id is None:
+        return "Error: deleting from the chat needs a chat session."
+    action = {**action, "user_id": str(user.id), "session_id": str(session_id)}
+    try:
+        token = await pending_actions.save(action)
+    except Exception:
+        logger.exception("Could not store a pending assistant action")
+        return "Error: deleting is unavailable right now; the user can delete it in the app."
+    return (
+        f"{_confirm_card(token, action)}\n"
+        "A confirmation card with a Delete button is now shown to the user. Nothing is "
+        "deleted until they press it. Tell them to confirm there; do not say it was deleted."
+    )
+
+
+async def execute_pending(db: AsyncSession, action: dict, user: User) -> dict:
+    """
+    Carry out a delete the user confirmed by clicking. Permission is checked again
+    (it may have changed since the card was shown). Raises HTTPException.
+    """
+    from app.modules.rbac.manager import rbac_manager
+
+    project_id = uuid.UUID(action["project_id"])
+    kind = action["kind"]
+    required = "task.delete" if kind == "delete_tasks" else "project.settings"
+    if not await rbac_manager.check_permission(
+        db, user.id, required, project_id=project_id
+    ):
+        raise HTTPException(
+            status_code=403, detail=f"project.missing_permission_{required}"
+        )
+
+    if kind == "delete_tasks":
+        now = datetime.now(UTC)
+        deleted = 0
+        for tid in action["ids"][:MAX_DELETE_TASKS]:
+            task_uuid = uuid.UUID(tid)
+            task = await task_manager.get_by_id(db, task_uuid)
+            if not task or task.project_id != project_id or task.is_deleted:
+                continue
+            task.is_deleted = True
+            task.deleted_at = now
+            task.deleted_by = user.id
+            await db.execute(
+                sa_update(Task)
+                .where(Task.parent_task_id == task_uuid, Task.is_deleted.is_(False))
+                .values(is_deleted=True, deleted_at=now, deleted_by=user.id)
+            )
+            deleted += 1
+        await db.commit()
+        return {"kind": kind, "count": deleted}
+
+    rule = await automation_manager.get(db, uuid.UUID(action["ids"][0]))
+    if not rule or rule.project_id != project_id:
+        raise HTTPException(status_code=404, detail="automation.not_found")
+    name = rule.name
+    await automation_manager.delete(db, rule)
+    await db.commit()
+    return {"kind": kind, "count": 1, "name": name}
+
+
 def _toast(kind: str, key: str, **params) -> str:
     """Toast marker that the chat UI shows in the user's language (key = i18n key)."""
     payload = json.dumps({"key": key, "params": params}, ensure_ascii=False)
@@ -238,6 +302,7 @@ async def dispatch_tool_call(
     current_user: User,
     db: AsyncSession,
     lang: str = "vi",
+    session_id: uuid.UUID | None = None,
 ) -> str:
     try:
         if hasattr(tool_call, "function"):
@@ -307,51 +372,34 @@ async def dispatch_tool_call(
             return f"{_toast('error', 'chatbot.toast.task_create_failed')}\n{e!s}"
 
     elif name == "delete_tasks":
-        try:
-            task_ids = args.get("task_ids", [])
-            confirmed = args.get("confirmed", False)
-
-            if not task_ids:
-                return "Error: task_ids required."
-            if len(task_ids) > MAX_DELETE_TASKS:
-                return (
-                    f"Error: at most {MAX_DELETE_TASKS} tasks can be deleted at once. "
-                    "Ask the user which ones to delete first."
-                )
-
-            if not confirmed:
-                msg = "Not confirmed. Ask the user: 'Are you sure you want to delete these tasks?' and do NOT delete them."
-                return f"{_toast('warning', 'chatbot.toast.delete_pending')}\n{msg}"
-
-            now = datetime.now(UTC)
-            deleted_count = 0
-
-            for tid in task_ids:
-                task_uuid = uuid.UUID(tid)
-                task = await task_manager.get_by_id(db, task_uuid)
-                if task and task.project_id == project_id:
-                    task.is_deleted = True
-                    task.deleted_at = now
-                    task.deleted_by = current_user.id
-                    await db.execute(
-                        sa_update(Task)
-                        .where(
-                            Task.parent_task_id == task_uuid, Task.is_deleted == False
-                        )
-                        .values(
-                            is_deleted=True, deleted_at=now, deleted_by=current_user.id
-                        )
-                    )
-                    deleted_count += 1
-
-            await db.commit()
-            toast = _toast(
-                "success", "chatbot.toast.tasks_deleted", count=deleted_count
+        task_ids = args.get("task_ids") or []
+        if not task_ids:
+            return "Error: task_ids required."
+        if len(task_ids) > MAX_DELETE_TASKS:
+            return (
+                f"Error: at most {MAX_DELETE_TASKS} tasks can be deleted at once. "
+                "Ask the user which ones to delete first."
             )
-            return f"{toast}\nSuccessfully deleted {deleted_count} task(s)."
-        except Exception as e:
-            await db.rollback()
-            return str(e)
+        found = []
+        for tid in task_ids:
+            try:
+                task = await task_manager.get_by_id(db, uuid.UUID(str(tid)))
+            except ValueError:
+                continue
+            if task and task.project_id == project_id and not task.is_deleted:
+                found.append(task)
+        if not found:
+            return "Error: none of these tasks exist in this project."
+        return await _ask_confirmation(
+            {
+                "kind": "delete_tasks",
+                "project_id": str(project_id),
+                "ids": [str(t.id) for t in found],
+                "titles": [t.title for t in found],
+            },
+            current_user,
+            session_id,
+        )
 
     elif name == "restore_task":
         try:
@@ -517,21 +565,21 @@ async def dispatch_tool_call(
             return str(e)
 
     elif name == "delete_automation":
-        confirmed = args.get("confirmed", False)
-        if not confirmed:
-            msg = "Not confirmed. Ask the user: 'Are you sure you want to delete this rule?' and DO NOT delete."
-            return f"{_toast('warning', 'chatbot.toast.delete_pending')}\n{msg}"
         try:
-            r_uuid = uuid.UUID(args.get("rule_id"))
-            rule = await automation_manager.get(db, r_uuid)
-            if not rule or rule.project_id != project_id:
-                return "Invalid rule"
-            await automation_manager.delete(db, rule)
-            await db.commit()
-            toast = _toast("success", "chatbot.toast.rule_deleted", name=rule.name)
-            return f"{toast}\nDeleted rule: {rule.name}"
-        except Exception as e:
-            await db.rollback()
-            return str(e)
+            rule = await automation_manager.get(db, uuid.UUID(str(args.get("rule_id"))))
+        except ValueError:
+            rule = None
+        if not rule or rule.project_id != project_id:
+            return "Invalid rule"
+        return await _ask_confirmation(
+            {
+                "kind": "delete_rule",
+                "project_id": str(project_id),
+                "ids": [str(rule.id)],
+                "titles": [rule.name],
+            },
+            current_user,
+            session_id,
+        )
 
     return f"Error: Tool '{name}' not supported."

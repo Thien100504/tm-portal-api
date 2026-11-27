@@ -8,6 +8,7 @@ Assistant sidebar: chat sessions for a workspace or one of its projects.
 - DELETE /chat/sessions/{id}                        delete with its messages
 - GET    /chat/sessions/{id}/messages
 - POST   /chat/sessions/{id}/stream                 send a message, stream the reply
+- POST   /chat/sessions/{id}/actions/{token}        confirm or cancel a delete the assistant asked for
 """
 
 import uuid
@@ -18,9 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
-from app.modules.ai import llm, sessions
+from app.models.ai import AIChatMessage
+from app.modules.ai import llm, pending_actions, sessions
+from app.modules.ai.tools import execute_pending
 from app.modules.ai import service as ai_service
 from app.modules.ai.schemas import (
+    ChatActionDecision,
+    ChatActionResult,
     ChatMessageInput,
     ChatMessageResponse,
     ChatSessionRename,
@@ -92,6 +97,46 @@ async def list_chat_messages(
     current_user: User = Depends(get_current_active_user),
 ):
     return await sessions.session_messages(db, session_id, current_user)
+
+
+@router.post("/sessions/{session_id}/actions/{token}", response_model=ChatActionResult)
+async def resolve_chat_action(
+    session_id: uuid.UUID,
+    token: str,
+    body: ChatActionDecision,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """The user's click on a confirmation card: the only way a chat delete happens."""
+    session = await sessions.get_session(db, session_id, current_user)
+    action = await pending_actions.take(token)
+    if (
+        not action
+        or action.get("user_id") != str(current_user.id)
+        or action.get("session_id") != str(session.id)
+    ):
+        raise HTTPException(status_code=404, detail="chatbot.error_action_expired")
+    if not body.confirm:
+        return ChatActionResult(status="cancelled", kind=action["kind"])
+
+    result = await execute_pending(db, action, current_user)
+    # keep the outcome in the conversation, for the user and the model
+    vi = body.lang == "vi"
+    if result["kind"] == "delete_tasks":
+        note = (
+            f"Đã xoá {result['count']} task."
+            if vi
+            else f"Deleted {result['count']} task(s)."
+        )
+    else:
+        note = (
+            f'Đã xoá rule "{result["name"]}".'
+            if vi
+            else f'Deleted rule "{result["name"]}".'
+        )
+    db.add(AIChatMessage(session_id=session.id, role="assistant", content=note))
+    await db.commit()
+    return ChatActionResult(status="done", **result)
 
 
 @router.post("/sessions/{session_id}/stream")
