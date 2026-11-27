@@ -199,11 +199,14 @@ class _Stream:
             raise StopAsyncIteration from None
 
 
-async def _run_chat(rounds, history=()):
+async def _run_chat(rounds, history=(), session_project=None, create=None):
     user = SimpleNamespace(id=uuid.uuid4())
+    project_id = uuid.uuid4()
     db = AsyncMock()
     db.add = MagicMock()
-    db.get.return_value = SimpleNamespace(user_id=user.id)
+    db.get.return_value = SimpleNamespace(
+        user_id=user.id, project_id=session_project or project_id
+    )
     project_row = MagicMock()
     project_row.one_or_none.return_value = (
         SimpleNamespace(name="Shop"),
@@ -222,7 +225,8 @@ async def _run_chat(rounds, history=()):
     redis_client = AsyncMock()
     redis_client.get.return_value = json.dumps(cached_ctx)
 
-    create = AsyncMock(side_effect=[_Stream(chunks) for chunks in rounds])
+    if create is None:
+        create = AsyncMock(side_effect=[_Stream(chunks) for chunks in rounds])
     client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=create))
     )
@@ -244,7 +248,7 @@ async def _run_chat(rounds, history=()):
         out = [
             piece
             async for piece in ai_service.chat_with_project(
-                db, uuid.uuid4(), uuid.uuid4(), "mark payment done", user, lang="vi"
+                db, project_id, uuid.uuid4(), "mark payment done", user, lang="vi"
             )
         ]
     return "".join(out), create, dispatch_mock, db
@@ -325,3 +329,94 @@ async def test_chatbot_survives_a_history_window_that_cut_a_tool_turn():
     _, create, _, _ = await _run_chat([[_chunk("OK")]], history=history)
     sent = create.await_args_list[0].kwargs["messages"]
     assert [m["role"] for m in sent] == ["system", "user"]
+
+
+@pytest.mark.asyncio
+async def test_a_session_from_another_project_is_refused():
+    text, create, _, _ = await _run_chat([], session_project=uuid.uuid4())
+    assert text == "[error:chatbot.error_session_not_found]"
+    create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_ai_call_yields_a_translatable_error():
+    failing = AsyncMock(side_effect=RuntimeError("boom"))
+    text, _, _, _ = await _run_chat([], create=failing)
+    assert text == "[error:chatbot.connection_error]"
+
+
+@pytest.mark.asyncio
+async def test_chat_is_refused_before_streaming_when_ai_is_not_configured():
+    from fastapi import HTTPException
+
+    with (
+        patch.object(llm, "is_configured", return_value=False),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await ai_service.check_chat_ready(
+            AsyncMock(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        )
+    assert (exc.value.status_code, exc.value.detail) == (
+        503,
+        "chatbot.error_not_configured",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "owner_matches, project_matches", [(False, True), (True, False)]
+)
+async def test_only_the_owner_can_use_a_session_in_its_own_project(
+    owner_matches, project_matches
+):
+    from fastapi import HTTPException
+
+    user_id, project_id = uuid.uuid4(), uuid.uuid4()
+    db = AsyncMock()
+    db.get.return_value = SimpleNamespace(
+        user_id=user_id if owner_matches else uuid.uuid4(),
+        project_id=project_id if project_matches else uuid.uuid4(),
+    )
+    with (
+        patch.object(llm, "is_configured", return_value=True),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await ai_service.check_chat_ready(db, project_id, uuid.uuid4(), user_id)
+    assert (exc.value.status_code, exc.value.detail) == (
+        404,
+        "chatbot.error_session_not_found",
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_toasts_carry_an_i18n_key_and_params():
+    from app.modules.ai import tools
+
+    project_id = uuid.uuid4()
+    task = SimpleNamespace(id=uuid.uuid4(), project_id=project_id, title="Thanh toán")
+    call = {
+        "function": {
+            "name": "update_task",
+            "arguments": json.dumps({"task_id": str(task.id), "status": "done"}),
+        }
+    }
+    db = AsyncMock()
+    with (
+        patch(
+            "app.modules.rbac.manager.rbac_manager.check_permission",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(tools.task_manager, "get_by_id", AsyncMock(return_value=task)),
+        patch.object(tools.task_manager, "update", AsyncMock()),
+    ):
+        result = await tools.dispatch_tool_call(
+            call, project_id, SimpleNamespace(id=uuid.uuid4()), db
+        )
+
+    marker, _, rest = result.partition("[/toast]")
+    assert marker.startswith("[toast:success]")
+    assert json.loads(marker.removeprefix("[toast:success]")) == {
+        "key": "chatbot.toast.task_updated",
+        "params": {"title": "Thanh toán"},
+    }
+    assert "Updated task: Thanh toán" in rest

@@ -873,6 +873,20 @@ def _complete_tool_turns(messages: list[dict]) -> list[dict]:
     return kept
 
 
+async def check_chat_ready(
+    db: AsyncSession, project_id: UUID, session_id: UUID, user_id: UUID
+) -> None:
+    """Fail before streaming starts, so the UI gets a translatable error code."""
+    from app.models.ai import AIChatSession
+    from app.modules.ai import llm
+
+    if not llm.is_configured():
+        raise HTTPException(status_code=503, detail="chatbot.error_not_configured")
+    session = await db.get(AIChatSession, session_id)
+    if not session or session.user_id != user_id or session.project_id != project_id:
+        raise HTTPException(status_code=404, detail="chatbot.error_session_not_found")
+
+
 async def chat_with_project(
     db: AsyncSession,
     project_id: UUID,
@@ -891,19 +905,12 @@ async def chat_with_project(
     from app.modules.ai import llm
     from app.modules.ai.tools import TOOLS_SCHEMA, dispatch_tool_call
 
-    if not llm.is_configured():
-        yield "The AI chatbot is not configured (missing API key)."
-        return
-
-    # 1. Validate session ownership before writing
-    from app.models.ai import AIChatSession
-
-    session_obj = await db.get(AIChatSession, session_id)
-    if not session_obj:
-        yield "Chat session not found."
-        return
-    if session_obj.user_id != current_user.id:
-        yield ("Access denied.")
+    # The router runs this before streaming; repeated here for direct callers.
+    # Errors are i18n keys the chat UI translates: [error:<key>]
+    try:
+        await check_chat_ready(db, project_id, session_id, current_user.id)
+    except HTTPException as exc:
+        yield f"[error:{exc.detail}]"
         return
 
     user_msg = AIChatMessage(session_id=session_id, role="user", content=user_content)
@@ -921,7 +928,7 @@ async def chat_with_project(
     ).one_or_none()
 
     if not project_row:
-        yield "Project not found."
+        yield "[error:project.not_found]"
         return
 
     project, workspace = project_row
@@ -1059,7 +1066,7 @@ COMMUNICATION INSTRUCTIONS:
     openai_messages = [{"role": "system", "content": system_prompt}]
 
     # DB load
-    db_messages = await get_chat_messages(db, session_id, current_user.id)
+    db_messages = await get_chat_messages(db, session_id, current_user.id, project_id)
     history = []
     for m in db_messages[-CHAT_HISTORY_MESSAGES:]:
         msg_dict = {"role": m.role}
@@ -1183,10 +1190,7 @@ COMMUNICATION INSTRUCTIONS:
 
     except Exception as exc:
         logger.warning("Chat streaming failed: %s", exc)
-        if is_vi:
-            yield "\n\n_(AI connection error, please try again.)_"
-        else:
-            yield "\n\n_(AI connection error, please try again.)_"
+        yield "[error:chatbot.connection_error]"
 
 
 async def get_ai_metrics(db: AsyncSession, project_id: UUID) -> AIMetricsResponse:
@@ -1382,11 +1386,18 @@ async def create_chat_session(
     return session
 
 
-async def get_chat_messages(db: AsyncSession, session_id: UUID, user_id: UUID):
+async def get_chat_messages(
+    db: AsyncSession, session_id: UUID, user_id: UUID, project_id: UUID
+):
     stmt = (
         select(AIChatMessage)
         .join(AIChatSession)
-        .where(AIChatMessage.session_id == session_id, AIChatSession.user_id == user_id)
+        .where(
+            AIChatMessage.session_id == session_id,
+            AIChatSession.user_id == user_id,
+            # a session only belongs to the project it was created in
+            AIChatSession.project_id == project_id,
+        )
         .order_by(AIChatMessage.created_at.asc())
     )
     result = await db.execute(stmt)

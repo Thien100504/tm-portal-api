@@ -92,7 +92,9 @@ async def get_messages(
     current_user: User = Depends(get_current_active_user),
 ):
     await get_project_access(project_id, db, current_user)
-    return await ai_service.get_chat_messages(db, session_id, current_user.id)
+    return await ai_service.get_chat_messages(
+        db, session_id, current_user.id, project_id
+    )
 
 
 @router.post("/chat/sessions/{session_id}/stream")
@@ -104,6 +106,7 @@ async def chat_stream(
     current_user: User = Depends(get_current_active_user),
 ):
     await get_project_access(project_id, db, current_user)
+    await ai_service.check_chat_ready(db, project_id, session_id, current_user.id)
 
     async def event_stream():
         async for chunk in ai_service.chat_with_project(
