@@ -693,3 +693,14 @@ async def test_confirmation_cards_reach_the_ui_but_the_model_cannot_make_them():
     text = "".join(pieces)
     assert card in text  # from the server
     assert "[confirm​]" in text  # the model's copy is defused
+
+
+@pytest.mark.asyncio
+async def test_a_provider_quota_is_reported_as_such():
+    class Quota(Exception):
+        status_code = 429
+
+    text, _, _, _ = await _run_chat(
+        [], create=AsyncMock(side_effect=Quota("Rate limit reached"))
+    )
+    assert text == "[error:chatbot.error_rate_limited]"

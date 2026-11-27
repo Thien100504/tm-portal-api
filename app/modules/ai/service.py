@@ -1273,7 +1273,13 @@ async def run_chat(
 
     except Exception as exc:
         logger.warning("Chat streaming failed: %s", exc)
-        yield "[error:chatbot.connection_error]"
+        # a provider quota (HTTP 429) is not a connection problem: say so
+        rate_limited = getattr(exc, "status_code", None) == 429
+        yield (
+            "[error:chatbot.error_rate_limited]"
+            if rate_limited
+            else "[error:chatbot.connection_error]"
+        )
 
 
 async def get_ai_metrics(db: AsyncSession, project_id: UUID) -> AIMetricsResponse:
