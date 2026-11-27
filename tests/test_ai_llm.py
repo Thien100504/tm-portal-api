@@ -312,8 +312,10 @@ async def test_chatbot_answers_in_words_after_the_round_limit():
 async def test_chatbot_replies_in_the_users_language():
     _, create, _, _ = await _run_chat([[_chunk("Chào bạn")]])
     system_prompt = create.await_args_list[0].kwargs["messages"][0]["content"]
-    assert "language of the user's latest message" in system_prompt
-    assert "reply in Vietnamese" in system_prompt
+    # the user wrote "mark payment done" (English) while the UI is Vietnamese
+    assert (
+        "Reply in English (the language of the user's latest message)" in system_prompt
+    )
 
 
 @pytest.mark.asyncio
@@ -393,7 +395,9 @@ async def test_tool_toasts_carry_an_i18n_key_and_params():
     from app.modules.ai import tools
 
     project_id = uuid.uuid4()
-    task = SimpleNamespace(id=uuid.uuid4(), project_id=project_id, title="Thanh toán")
+    task = SimpleNamespace(
+        id=uuid.uuid4(), project_id=project_id, title="Thanh toán", status="todo"
+    )
     call = {
         "function": {
             "name": "update_task",
@@ -408,6 +412,7 @@ async def test_tool_toasts_carry_an_i18n_key_and_params():
         ),
         patch.object(tools.task_manager, "get_by_id", AsyncMock(return_value=task)),
         patch.object(tools.task_manager, "update", AsyncMock()),
+        patch.object(tools.task_manager, "update_status", AsyncMock()),
     ):
         result = await tools.dispatch_tool_call(
             call, project_id, SimpleNamespace(id=uuid.uuid4()), db
@@ -420,3 +425,130 @@ async def test_tool_toasts_carry_an_i18n_key_and_params():
         "params": {"title": "Thanh toán"},
     }
     assert "Updated task: Thanh toán" in rest
+
+
+@pytest.mark.parametrize(
+    "message, ui_lang, expected",
+    [
+        ("Dự án nào đang chậm nhất?", "en", "Vietnamese"),
+        ("How many tasks are not done?", "vi", "English"),
+        ("VNPay", "vi", "Vietnamese"),  # too short to tell: the UI language
+        ("VNPay", "en", "English"),
+        (
+            "tao task thanh toan",
+            "vi",
+            "English",
+        ),  # unaccented Vietnamese reads as English
+    ],
+)
+def test_reply_language_follows_the_message(message, ui_lang, expected):
+    assert ai_service.reply_language(message, ui_lang) == expected
+
+
+def _update_call(task_id, **args):
+    return {
+        "function": {
+            "name": "update_task",
+            "arguments": json.dumps({"task_id": str(task_id), **args}),
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_status_change_goes_through_update_status():
+    from app.modules.ai import tools
+
+    project_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=uuid.uuid4(), project_id=project_id, title="VNPay", status="todo"
+    )
+
+    async def move(_db, t, status, override=False):
+        t.status = status
+
+    update, update_status = AsyncMock(), AsyncMock(side_effect=move)
+    with (
+        patch(
+            "app.modules.rbac.manager.rbac_manager.check_permission",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(tools.task_manager, "get_by_id", AsyncMock(return_value=task)),
+        patch.object(tools.task_manager, "update", update),
+        patch.object(tools.task_manager, "update_status", update_status),
+    ):
+        result = await tools.dispatch_tool_call(
+            _update_call(task.id, status="in_progress"),
+            project_id,
+            SimpleNamespace(id=uuid.uuid4()),
+            AsyncMock(),
+        )
+
+    update_status.assert_awaited_once()
+    update.assert_not_awaited()  # nothing else to change
+    assert task.status == "in_progress"
+    assert "chatbot.toast.task_updated" in result and "(status: in_progress)" in result
+
+
+@pytest.mark.asyncio
+async def test_a_refused_status_change_is_reported_not_claimed():
+    from fastapi import HTTPException
+
+    from app.modules.ai import tools
+
+    project_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=uuid.uuid4(), project_id=project_id, title="VNPay", status="todo"
+    )
+    db = AsyncMock()
+    refuse = AsyncMock(
+        side_effect=HTTPException(
+            status_code=400, detail="task.error_subtasks_not_done"
+        )
+    )
+    with (
+        patch(
+            "app.modules.rbac.manager.rbac_manager.check_permission",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(tools.task_manager, "get_by_id", AsyncMock(return_value=task)),
+        patch.object(tools.task_manager, "update_status", refuse),
+    ):
+        result = await tools.dispatch_tool_call(
+            _update_call(task.id, status="done"),
+            project_id,
+            SimpleNamespace(id=uuid.uuid4()),
+            db,
+        )
+
+    assert "chatbot.toast.task_update_failed" in result
+    assert "task.error_subtasks_not_done" in result
+    assert "chatbot.toast.task_updated" not in result
+    db.rollback.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_status_is_rejected_before_touching_the_task():
+    from app.modules.ai import tools
+
+    project_id = uuid.uuid4()
+    task = SimpleNamespace(
+        id=uuid.uuid4(), project_id=project_id, title="VNPay", status="todo"
+    )
+    update_status = AsyncMock()
+    with (
+        patch(
+            "app.modules.rbac.manager.rbac_manager.check_permission",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(tools.task_manager, "get_by_id", AsyncMock(return_value=task)),
+        patch.object(tools.task_manager, "update_status", update_status),
+    ):
+        result = await tools.dispatch_tool_call(
+            _update_call(task.id, status="in progress"),
+            project_id,
+            SimpleNamespace(id=uuid.uuid4()),
+            AsyncMock(),
+        )
+
+    assert result.startswith("Error: status must be one of")
+    update_status.assert_not_awaited()
