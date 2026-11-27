@@ -308,7 +308,8 @@ async def test_chatbot_answers_in_words_after_the_round_limit():
 async def test_chatbot_replies_in_the_users_language():
     _, create, _, _ = await _run_chat([[_chunk("Chào bạn")]])
     system_prompt = create.await_args_list[0].kwargs["messages"][0]["content"]
-    assert "in Vietnamese" in system_prompt
+    assert "language of the user's latest message" in system_prompt
+    assert "reply in Vietnamese" in system_prompt
 
 
 @pytest.mark.asyncio

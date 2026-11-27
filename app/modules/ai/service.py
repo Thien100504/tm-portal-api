@@ -1051,7 +1051,7 @@ TOOL USAGE INSTRUCTIONS:
 4. CONFIRM DELETION: When the user asks to delete a task or rule, you MUST ask for confirmation first ("Are you sure you want to delete?"). ONLY execute the delete tool if the user already agreed in the previous turn.
 
 COMMUNICATION INSTRUCTIONS:
-- Reply concisely, practically and helpfully in {"Vietnamese" if is_vi else "English"}.
+- Reply in the language of the user's latest message; if it is unclear (e.g. only a task name), reply in {"Vietnamese" if is_vi else "English"}. Be concise, practical and helpful.
 - Limit responses to 150 words unless detailed explanation is needed.
 - Do not invent PROJECT INFORMATION. For casual conversation (greetings, jokes, etc.), reply naturally and flexibly.
 """
