@@ -294,7 +294,8 @@ async def test_list_tasks_reads_only_the_users_projects_and_applies_filters():
     assert "tasks.status != 'done'" in sql
     assert f"LIMIT {workspace_chat.MAX_TASKS}" in sql
     assert out.startswith(
-        "- [Shop] VNPay | status: todo | priority: high | assignee: An | deadline: "
+        workspace_chat.DATA_NOTICE
+        + "- [Shop] VNPay | status: todo | priority: high | assignee: An | deadline: "
     )
 
 
@@ -387,6 +388,7 @@ async def test_workspace_chat_prompts_with_the_projects_and_streams_the_reply():
         in captured["prompt"]
     )
     assert "never tell them to open the workspace chat" in captured["prompt"]
+    assert "UNTRUSTED DATA" in captured["prompt"]
     assert workspace_chat.PRODUCT_GUIDE in captured["prompt"]
     assert captured["tools"] is workspace_chat.WORKSPACE_TOOLS
     saved = db.add.call_args.args[0]
