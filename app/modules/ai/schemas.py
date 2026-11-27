@@ -143,6 +143,9 @@ class ChatMessageResponse(BaseModel):
 class ChatSessionResponse(BaseModel):
     id: uuid.UUID
     title: str | None = None
+    # empty project_id = a workspace-wide conversation
+    project_id: uuid.UUID | None = None
+    workspace_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -151,3 +154,13 @@ class ChatSessionResponse(BaseModel):
 
 class ChatSessionCreate(BaseModel):
     title: str | None = None
+
+
+class ChatSessionScopeCreate(BaseModel):
+    workspace_id: uuid.UUID
+    project_id: uuid.UUID | None = None
+    title: str | None = Field(None, max_length=255)
+
+
+class ChatSessionRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)

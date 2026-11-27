@@ -5,11 +5,13 @@ Collects project data → computes the health score and insights → (optionally
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -902,7 +904,6 @@ async def chat_with_project(
     """
     from app.models.ai import AIChatMessage
     from app.models.workspace import Workspace
-    from app.modules.ai import llm
     from app.modules.ai.tools import TOOLS_SCHEMA, dispatch_tool_call
 
     # The router runs this before streaming; repeated here for direct callers.
@@ -1063,10 +1064,41 @@ COMMUNICATION INSTRUCTIONS:
 - Do not invent PROJECT INFORMATION. For casual conversation (greetings, jokes, etc.), reply naturally and flexibly.
 """
 
-    openai_messages = [{"role": "system", "content": system_prompt}]
-
-    # DB load
     db_messages = await get_chat_messages(db, session_id, current_user.id, project_id)
+
+    async def dispatch(tc: dict) -> str:
+        return await dispatch_tool_call(tc, project_id, current_user, db, lang=lang)
+
+    async for piece in run_chat(
+        db, session_id, system_prompt, db_messages, TOOLS_SCHEMA, dispatch
+    ):
+        yield piece
+
+
+async def run_chat(
+    db: AsyncSession,
+    session_id: UUID,
+    system_prompt: str,
+    db_messages: list,
+    tools: list[dict],
+    dispatch: Callable[[dict], Awaitable[str]],
+):
+    """
+    Stream one assistant turn: the model may chain up to llm.MAX_TOOL_ROUNDS
+    rounds of tool calls (dispatch runs them) before it answers in words.
+    Every message is saved to the session; yields the text to show.
+    """
+    from app.models.ai import AIChatMessage, AIChatSession
+    from app.modules.ai import llm
+
+    # newest conversations first in the sidebar
+    await db.execute(
+        sa_update(AIChatSession)
+        .where(AIChatSession.id == session_id)
+        .values(updated_at=func.now())
+    )
+
+    openai_messages = [{"role": "system", "content": system_prompt}]
     history = []
     for m in db_messages[-CHAT_HISTORY_MESSAGES:]:
         msg_dict = {"role": m.role}
@@ -1090,7 +1122,7 @@ COMMUNICATION INSTRUCTIONS:
 
         for round_no in range(llm.MAX_TOOL_ROUNDS + 1):
             # The last round gets no tools, so the model has to answer in words
-            extra = {"tools": TOOLS_SCHEMA} if round_no < llm.MAX_TOOL_ROUNDS else {}
+            extra = {"tools": tools} if round_no < llm.MAX_TOOL_ROUNDS else {}
             stream = await client.chat.completions.create(
                 model=model,
                 messages=openai_messages,
@@ -1161,9 +1193,7 @@ COMMUNICATION INSTRUCTIONS:
             )
 
             for tc in calls:
-                result_str = await dispatch_tool_call(
-                    tc, project_id, current_user, db, lang=lang
-                )
+                result_str = await dispatch(tc)
 
                 if "[toast:" in result_str:
                     before, sep, _ = result_str.partition("[/toast]")
@@ -1377,9 +1407,15 @@ async def get_chat_sessions(db: AsyncSession, project_id: UUID, user_id: UUID):
 
 
 async def create_chat_session(
-    db: AsyncSession, project_id: UUID, user_id: UUID, title: str = "New Conversation"
+    db: AsyncSession,
+    project_id: UUID,
+    user_id: UUID,
+    title: str = "New Conversation",
+    workspace_id: UUID | None = None,
 ):
-    session = AIChatSession(project_id=project_id, user_id=user_id, title=title)
+    session = AIChatSession(
+        project_id=project_id, user_id=user_id, title=title, workspace_id=workspace_id
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
