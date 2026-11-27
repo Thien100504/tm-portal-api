@@ -1,13 +1,15 @@
 """
 Workspace-wide assistant: answers questions across every project the user can
-open in a workspace. It only reads; changes go through a project's chat, where
-each write is checked against that project's permissions.
+open in a workspace and can create projects (the same check as the Create
+project button). Changes inside a project go through that project's chat,
+where each write is checked against the project's permissions.
 """
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
+from pydantic import ValidationError
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +26,9 @@ from app.modules.ai.service import (
     reply_language,
     run_chat,
 )
+from app.modules.ai.tools import _toast
 from app.modules.projects.manager import project_manager
+from app.modules.projects.schemas import ProjectCreate
 
 MAX_PROJECTS_IN_PROMPT = 30
 MAX_TASKS = 50
@@ -60,6 +64,26 @@ WORKSPACE_TOOLS = [
                     "assigned_to_me": {"type": "boolean"},
                     "limit": {"type": "integer", "description": f"At most {MAX_TASKS}"},
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_project",
+            "description": "Create a new project in this workspace. ONLY when the user clearly asks to create one and gives its name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Project name the user gave",
+                    },
+                    "description": {"type": "string"},
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["name"],
             },
         },
     },
@@ -121,8 +145,47 @@ def _stat_line(s: dict) -> str:
     )
 
 
+async def _create_project(
+    args: dict, workspace_id: uuid.UUID, user: User, db: AsyncSession
+) -> str:
+    # same rule as POST /projects: any member of the workspace may create one
+    if not await project_manager.is_workspace_member(db, workspace_id, user.id):
+        return "Error: you are not a member of this workspace, so you cannot create projects here."
+    try:
+        project_in = ProjectCreate(
+            name=str(args.get("name") or "").strip(),
+            description=args.get("description") or None,
+            start_date=date.fromisoformat(args["start_date"])
+            if args.get("start_date")
+            else None,
+            end_date=date.fromisoformat(args["end_date"])
+            if args.get("end_date")
+            else None,
+            workspace_id=workspace_id,
+        )
+    except (ValidationError, ValueError) as e:
+        return f"Error: invalid project details ({str(e).splitlines()[0]})."
+    try:
+        project = await project_manager.create_project_with_owner(
+            db, project_in, user.id
+        )
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        return f"{_toast('error', 'chatbot.toast.project_create_failed')}\nError: {e!s}"
+    toast = _toast("success", "chatbot.toast.project_created", name=project.name)
+    return (
+        f"{toast}\nCreated project: {project.name}. The user can open it from Projects in "
+        "the left sidebar, and pick it in the assistant's scope picker to manage its tasks."
+    )
+
+
 async def dispatch_workspace_tool(
-    tool_call: dict, projects: list[Project], user: User, db: AsyncSession
+    tool_call: dict,
+    projects: list[Project],
+    user: User,
+    db: AsyncSession,
+    workspace_id: uuid.UUID | None = None,
 ) -> str:
     name = tool_call.get("function", {}).get("name")
     try:
@@ -182,6 +245,9 @@ async def dispatch_workspace_tool(
             for t, assignee in rows
         )
 
+    if name == "create_project" and workspace_id:
+        return await _create_project(args, workspace_id, user, db)
+
     return f"Error: Tool '{name}' is not available in the workspace chat."
 
 
@@ -206,6 +272,7 @@ async def chat_with_workspace(
     more = len(stats) - len(shown)
 
     system_prompt = f"""You are the AI assistant of the workspace "{workspace.name if workspace else ""}" in the TaskManager project management system.
+WHERE YOU ARE: the workspace chat (scope "Whole workspace" in the assistant sidebar). The user is already here; never tell them to open the workspace chat.
 You can see every project the user can open in this workspace.
 
 PROJECTS ({len(stats)}, most overdue first):
@@ -213,8 +280,11 @@ PROJECTS ({len(stats)}, most overdue first):
 
 TOOL USAGE INSTRUCTIONS:
 1. Use list_projects and list_tasks to look up anything not listed above. Never invent projects, tasks or people.
-2. This workspace chat can only read. To create, change or delete tasks, sprints or rules, tell the user to open that project's chat.
-3. Never show raw IDs.
+2. You can create a project with create_project when the user asks and gives a name (ask for the name if missing).
+3. You cannot create, change or delete tasks, sprints or rules here. For that, tell the user to pick the project in the scope picker at the top of this assistant sidebar (or open the project), then ask again.
+4. "The system" / "hệ thống" without a project name means TaskManager itself: explain it from the user guide below.
+5. Never guess what a project is about from its task titles; only state what the data shows.
+6. Never show raw IDs.
 
 HOW TO USE TASKMANAGER:
 {GUIDE_RULE}
@@ -241,7 +311,9 @@ COMMUNICATION INSTRUCTIONS:
     )
 
     async def dispatch(tc: dict) -> str:
-        return await dispatch_workspace_tool(tc, projects, current_user, db)
+        return await dispatch_workspace_tool(
+            tc, projects, current_user, db, workspace_id=session.workspace_id
+        )
 
     async for piece in run_chat(
         db,

@@ -1068,6 +1068,8 @@ async def chat_with_project(
             pass  # fail-open
 
     system_prompt = f"""You are an intelligent AI assistant for the TaskManager project management system.
+WHERE YOU ARE: the chat of the project "{project.name}" (picked in the assistant sidebar's scope picker). You can manage this project's tasks, sprints and automation rules with the tools, within the user's permissions. Questions about other projects or creating projects belong to the "Whole workspace" scope.
+"The system" / "hệ thống" without more context means TaskManager itself: explain it from the user guide below. Never guess what the project is about from its task titles.
 You have access to project data and help users manage their work more effectively.
 
 CURRENT PROJECT DATA:

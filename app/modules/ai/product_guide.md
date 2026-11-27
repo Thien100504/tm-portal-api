@@ -57,10 +57,13 @@ described here, say TaskManager does not have it (do not invent screens such as
 - Timeline: sprints and task deadlines on a time axis.
 
 ## Automation (project)
-- Automation → Suggested Templates or "Create New Rule": IF a condition (task
-  created, status changes to, assigned, priority changes to, unblocked, due soon
-  within 24h, overdue) THEN an action. Turn rules on or off; duplicate rules are
-  refused.
+- Automation → Suggested Templates or "Create New Rule": IF a condition THEN an
+  action. Turn rules on or off; duplicate rules are refused.
+- Conditions: task created; status changes to …; task assigned; priority changes
+  to …; task unblocked; due soon (24h); overdue; stale (no change for 5 days).
+- Actions: set status; set priority; assign to sprint; remove from sprint;
+  auto comment; reassign to …; AI generate sub-tasks; AI estimate story points;
+  extend deadline by N days; send notification.
 
 ## Insight and reports
 - Project Overview: health score, completion, overdue and blocked tasks, current
@@ -78,6 +81,8 @@ described here, say TaskManager does not have it (do not invent screens such as
   Sketch), transparency, blur, motion, cursor glow, grid, accent colour.
   Topbar buttons switch language (VI/EN) and theme.
 - AI assistant: the robot button in the topbar or Ctrl+J opens the sidebar.
-  Pick "Whole workspace" (read-only questions across projects) or a project
-  (can also create, update and delete tasks, manage sprints and automation rules,
-  within the user's permissions). Conversations can be renamed and deleted.
+  The scope picker at the top of the sidebar chooses who you talk to:
+  "Whole workspace" (questions across all projects; can create projects) or one
+  project (can also create, update and delete its tasks, manage its sprints and
+  automation rules). Always within the user's own permissions. Conversations can
+  be renamed and deleted.

@@ -251,6 +251,10 @@ def _project(name):
     return SimpleNamespace(id=uuid.uuid4(), name=name)
 
 
+def _tool(name, args):
+    return {"function": {"name": name, "arguments": json.dumps(args)}}
+
+
 def _call(name, **args):
     return {"function": {"name": name, "arguments": json.dumps(args)}}
 
@@ -316,10 +320,11 @@ async def test_workspace_chat_cannot_call_project_write_tools():
     assert out == "Error: Tool 'delete_tasks' is not available in the workspace chat."
 
 
-def test_workspace_tools_are_read_only():
+def test_creating_projects_is_the_only_write_in_the_workspace_chat():
     assert {t["function"]["name"] for t in workspace_chat.WORKSPACE_TOOLS} == {
         "list_projects",
         "list_tasks",
+        "create_project",
     }
 
 
@@ -381,7 +386,7 @@ async def test_workspace_chat_prompts_with_the_projects_and_streams_the_reply():
         "- Blog: 5 tasks, 1 done (20%), 3 overdue, active sprint: none"
         in captured["prompt"]
     )
-    assert "can only read" in captured["prompt"]
+    assert "never tell them to open the workspace chat" in captured["prompt"]
     assert workspace_chat.PRODUCT_GUIDE in captured["prompt"]
     assert captured["tools"] is workspace_chat.WORKSPACE_TOOLS
     saved = db.add.call_args.args[0]
@@ -394,3 +399,92 @@ async def test_status_tells_the_ui_whether_ai_can_answer(configured):
     with patch.object(llm, "is_configured", return_value=configured):
         status = await chat_router.chat_status(SimpleNamespace(id=uuid.uuid4()))
     assert status.configured is configured
+
+
+@pytest.mark.asyncio
+async def test_only_workspace_members_can_create_a_project_through_the_chat():
+    create = AsyncMock()
+    with (
+        patch.object(
+            workspace_chat.project_manager,
+            "is_workspace_member",
+            AsyncMock(return_value=False),
+        ),
+        patch.object(
+            workspace_chat.project_manager, "create_project_with_owner", create
+        ),
+    ):
+        out = await workspace_chat.dispatch_workspace_tool(
+            _tool("create_project", {"name": "Shop"}),
+            [],
+            SimpleNamespace(id=uuid.uuid4()),
+            AsyncMock(),
+            workspace_id=uuid.uuid4(),
+        )
+    assert out.startswith("Error: you are not a member of this workspace")
+    create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_workspace_chat_creates_the_project_in_its_workspace():
+    ws_id, user = uuid.uuid4(), SimpleNamespace(id=uuid.uuid4())
+    db = AsyncMock()
+    create = AsyncMock(return_value=SimpleNamespace(name="Shop"))
+    with (
+        patch.object(
+            workspace_chat.project_manager,
+            "is_workspace_member",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            workspace_chat.project_manager, "create_project_with_owner", create
+        ),
+    ):
+        out = await workspace_chat.dispatch_workspace_tool(
+            _tool("create_project", {"name": " Shop ", "start_date": "2026-12-01"}),
+            [],
+            user,
+            db,
+            workspace_id=ws_id,
+        )
+    project_in, owner = create.await_args.args[1], create.await_args.args[2]
+    assert (
+        project_in.name,
+        project_in.workspace_id,
+        str(project_in.start_date),
+        owner,
+    ) == (
+        "Shop",
+        ws_id,
+        "2026-12-01",
+        user.id,
+    )
+    db.commit.assert_awaited()
+    assert '"key": "chatbot.toast.project_created"' in out and '"name": "Shop"' in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "args", [{"name": ""}, {"name": "Shop", "end_date": "next friday"}]
+)
+async def test_bad_project_details_are_reported(args):
+    create = AsyncMock()
+    with (
+        patch.object(
+            workspace_chat.project_manager,
+            "is_workspace_member",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            workspace_chat.project_manager, "create_project_with_owner", create
+        ),
+    ):
+        out = await workspace_chat.dispatch_workspace_tool(
+            _tool("create_project", args),
+            [],
+            SimpleNamespace(id=uuid.uuid4()),
+            AsyncMock(),
+            workspace_id=uuid.uuid4(),
+        )
+    assert out.startswith("Error: invalid project details")
+    create.assert_not_awaited()
