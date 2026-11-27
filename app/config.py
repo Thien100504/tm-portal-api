@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     OPENAI_MODEL_NAME: str = "gpt-4o-mini"
     NVIDIA_API_KEY: str = ""
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    # Empty = the provider default from app/modules/ai/llm.py
+    AI_CHAT_MODEL: str = ""
+    AI_TASK_MODEL: str = ""
+    # Room for the reply; Vietnamese and reasoning models need far more than 512
+    AI_MAX_TOKENS: int = 4096
 
     # --- CORS (GAP-01 fix) ---
     CORS_ORIGINS: list[str] = [
