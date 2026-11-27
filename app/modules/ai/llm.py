@@ -18,9 +18,12 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Defaults for NVIDIA's hosted catalog (build.nvidia.com)
-NVIDIA_CHAT_MODEL = "z-ai/glm-5.3-flash"  # fast, good at tool calling
-NVIDIA_TASK_MODEL = "mistralai/mistral-large-4-1t-a52b"  # strong at strict JSON
+# Default for NVIDIA's hosted catalog (build.nvidia.com): free endpoint, function
+# calling and structured output, ~5 s per task breakdown in Vietnamese. Measured
+# alternatives: mistralai/mistral-large-4-1t-a52b gives similar answers in ~40 s;
+# z-ai/glm-5.3-flash had a queue of thousands of requests on the free endpoint.
+NVIDIA_CHAT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+NVIDIA_TASK_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 # The chatbot may chain tool calls (find a task, then update it) up to this many times
 MAX_TOOL_ROUNDS = 5
