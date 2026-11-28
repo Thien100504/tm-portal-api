@@ -22,6 +22,9 @@ async def test_base_manager_update():
     db = AsyncMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
+    db.execute = AsyncMock(
+        return_value=MagicMock(**{"scalars.return_value.all.return_value": []})
+    )
 
     rule = MagicMock()
     rule.name = "old"

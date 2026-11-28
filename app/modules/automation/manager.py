@@ -80,6 +80,10 @@ class AutomationManager:
                 detail="automation.rule_limit_exceeded",
             )
 
+        await self._reject_duplicate(
+            db, project_id, data.trigger_event, data.conditions, data.actions
+        )
+
         rule = AutomationRule(
             project_id=project_id,
             name=data.name,
@@ -110,9 +114,40 @@ class AutomationManager:
             rule.actions = data.actions
         if data.is_active is not None:
             rule.is_active = data.is_active
+        await self._reject_duplicate(
+            db,
+            rule.project_id,
+            rule.trigger_event,
+            rule.conditions,
+            rule.actions,
+            exclude_id=rule.id,
+        )
         await db.flush()
         await db.refresh(rule)
         return rule
+
+    async def _reject_duplicate(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        trigger_event: str,
+        conditions: dict[str, Any] | None,
+        actions: dict[str, Any],
+        exclude_id: uuid.UUID | None = None,
+    ) -> None:
+        """A rule that does the same thing as another rule of the project
+        (same trigger, conditions and action; the name does not count) is a
+        duplicate, whether that other rule is active or not."""
+        query = select(AutomationRule).where(
+            AutomationRule.project_id == project_id,
+            AutomationRule.trigger_event == trigger_event,
+        )
+        if exclude_id is not None:
+            query = query.where(AutomationRule.id != exclude_id)
+        wanted = (_normalized(conditions), _normalized(actions))
+        for other in (await db.execute(query)).scalars().all():
+            if (_normalized(other.conditions), _normalized(other.actions)) == wanted:
+                raise HTTPException(status_code=409, detail="automation.duplicate_rule")
 
     async def toggle(self, db: AsyncSession, rule: AutomationRule) -> AutomationRule:
         rule.is_active = not rule.is_active
@@ -183,6 +218,12 @@ class AutomationManager:
 # ──────────────────────────────────────────────────────────────────────────────
 # Private helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+def _normalized(value: dict[str, Any] | None) -> dict[str, Any]:
+    """Drop empty entries so {"to_status": "done", "priority": None} and
+    {"to_status": "done"} compare equal."""
+    return {k: v for k, v in (value or {}).items() if v not in (None, "", [], {})}
 
 
 def _check_conditions(
