@@ -100,6 +100,21 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
         done_tasks = [t for t in tasks if t.status == "done"]
         incomplete_tasks = [t for t in tasks if t.status != "done"]
 
+        # Freeze the scope before unfinished tasks leave the sprint
+        sprint.completion_snapshot = {
+            "tasks": [
+                {
+                    "id": str(t.id),
+                    "hours": t.estimated_hours or 1.0,
+                    "done": t.status == "done",
+                    "done_at": _as_utc(t.updated_at).isoformat()
+                    if t.status == "done" and t.updated_at
+                    else None,
+                }
+                for t in tasks
+            ]
+        }
+
         if incomplete_action == "backlog":
             for task in incomplete_tasks:
                 task.sprint_id = None
@@ -185,6 +200,7 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
 
         sprint.status = "active"
         sprint.completed_at = None
+        sprint.completion_snapshot = None
         await db.flush()
         await db.refresh(sprint)
         return sprint
@@ -192,15 +208,47 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
     # ──────────────────────────────────────────────────────────────────
     # Sprint stats
     # ──────────────────────────────────────────────────────────────────
-    async def get_stats(self, db: AsyncSession, sprint: Sprint) -> dict:
+    async def _scope(self, db: AsyncSession, sprint: Sprint) -> list[dict]:
+        """
+        The tasks a sprint's report is about, as {hours, done, done_at}.
+        A completed sprint uses the snapshot taken when it was completed; an
+        open sprint (or one completed before snapshots existed) uses its
+        current tasks, with updated_at as a proxy for when a task was done.
+        """
+        snapshot = sprint.completion_snapshot
+        if sprint.status == "completed" and isinstance(snapshot, dict):
+            return [
+                {
+                    "hours": float(item.get("hours") or 1.0),
+                    "done": bool(item.get("done")),
+                    "done_at": datetime.fromisoformat(item["done_at"])
+                    if item.get("done_at")
+                    else None,
+                }
+                for item in snapshot.get("tasks", [])
+            ]
+
         tasks_query = select(Task).where(
             Task.sprint_id == sprint.id,
             Task.is_deleted == False,
         )
         tasks = (await db.execute(tasks_query)).scalars().all()
+        return [
+            {
+                "hours": t.estimated_hours or 1.0,
+                "done": t.status == "done",
+                "done_at": _as_utc(t.updated_at)
+                if t.status == "done" and t.updated_at is not None
+                else None,
+            }
+            for t in tasks
+        ]
 
-        total = len(tasks)
-        done = sum(1 for t in tasks if t.status == "done")
+    async def get_stats(self, db: AsyncSession, sprint: Sprint) -> dict:
+        scope = await self._scope(db, sprint)
+
+        total = len(scope)
+        done = sum(1 for item in scope if item["done"])
 
         # Number of days the sprint actually ran
         actual_days = None
@@ -225,18 +273,14 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
         Daily data points for the burndown chart.
 
         - ideal_hours: the ideal line (linear decrease)
-        - remaining_hours: the actual line (task.updated_at is used as a proxy
-          for the moment a task was marked done)
+        - remaining_hours: the actual line (see _scope for when a task counts
+          as done)
 
         Fallback: tasks without estimated_hours count as 1 unit each.
         """
-        tasks_query = select(Task).where(
-            Task.sprint_id == sprint.id,
-            Task.is_deleted == False,
-        )
-        tasks = (await db.execute(tasks_query)).scalars().all()
+        scope = await self._scope(db, sprint)
 
-        if not tasks:
+        if not scope:
             return []
 
         # Start: prefer started_at (actual) over start_date (planned)
@@ -254,25 +298,29 @@ class SprintManager(BaseManager[Sprint, SprintCreate, SprintUpdate]):
             end = datetime.now(UTC)
 
         start, end = _as_utc(start), _as_utc(end)
-        total_hours = sum(t.estimated_hours or 1.0 for t in tasks)
+        total_hours = sum(item["hours"] for item in scope)
         # bounded: dates are validated, but never loop over years of days
         total_days = min(max((end - start).days, 1), 366)
 
         points = []
         for day_offset in range(total_days + 1):
             current_day = start + timedelta(days=day_offset)
+            # the last point is the end itself, so work finished on the last
+            # (partial) day still burns down
+            if day_offset == total_days and end > current_day:
+                current_day = end
 
             # Ideal line: decreases evenly from total to 0
             ideal = total_hours * (1 - day_offset / total_days)
 
             # Actual line: hours of tasks NOT done by that day
             remaining = sum(
-                (t.estimated_hours or 1.0)
-                for t in tasks
+                item["hours"]
+                for item in scope
                 if not (
-                    t.status == "done"
-                    and t.updated_at is not None
-                    and _as_utc(t.updated_at) <= current_day
+                    item["done"]
+                    and item["done_at"] is not None
+                    and _as_utc(item["done_at"]) <= current_day
                 )
             )
 
