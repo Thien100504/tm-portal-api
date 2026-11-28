@@ -20,6 +20,7 @@ from app.models.project import Project, ProjectMember
 from app.models.sprint import Sprint
 from app.models.task import Task, TaskDependency
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.modules.ai.schemas import (
     ActiveSprintInsight,
     AIInsightsResponse,
@@ -1296,6 +1297,32 @@ async def get_ai_metrics(db: AsyncSession, project_id: UUID) -> AIMetricsRespons
         by_feature=by_feature,
         recent=recent,
     )
+
+
+async def breakdown_assignee(
+    db: AsyncSession, parent_task: Task, actor_id: UUID | None
+) -> UUID | None:
+    """
+    Who AI-created subtasks are assigned to: the parent task's assignee, else
+    the person who asked for the breakdown (both only while they are live
+    project members), else the owner of a personal workspace, else nobody.
+    """
+    for user_id in (parent_task.assignee_id, actor_id):
+        if user_id and await db.scalar(
+            select(ProjectMember.user_id).where(
+                ProjectMember.project_id == parent_task.project_id,
+                ProjectMember.user_id == user_id,
+                ProjectMember.is_deleted.is_(False),
+            )
+        ):
+            return user_id
+
+    project = await db.get(Project, parent_task.project_id)
+    if project and project.workspace_id:
+        workspace = await db.get(Workspace, project.workspace_id)
+        if workspace and workspace.type == "personal":
+            return workspace.owner_id
+    return None
 
 
 async def update_metric_feedback(
