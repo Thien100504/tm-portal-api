@@ -76,9 +76,13 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    await get_project_access(project_id, db, current_user)
+    project = await get_project_access(project_id, db, current_user)
     return await ai_service.create_chat_session(
-        db, project_id, current_user.id, body.title or "New Conversation"
+        db,
+        project_id,
+        current_user.id,
+        body.title or "New Conversation",
+        workspace_id=project.workspace_id,
     )
 
 
