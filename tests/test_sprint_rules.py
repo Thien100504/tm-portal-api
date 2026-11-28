@@ -1,7 +1,7 @@
 """Sprint rules: status only via the lifecycle, date validation, target sprint checks."""
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -56,11 +56,21 @@ def _sprint(project_id=None, status="active"):
     )
 
 
+def _task(status, sprint_id, hours=None, updated_at=None):
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        status=status,
+        sprint_id=sprint_id,
+        estimated_hours=hours,
+        updated_at=updated_at,
+    )
+
+
 @pytest.mark.asyncio
 async def test_cannot_move_tasks_into_another_projects_sprint():
     sprint = _sprint()
     foreign = _sprint(status="planning")  # another project
-    task = SimpleNamespace(status="todo", sprint_id=sprint.id)
+    task = _task("todo", sprint.id)
     with pytest.raises(HTTPException) as exc:
         await sprint_manager.complete_sprint(
             _db_with(foreign, [task]), sprint, "next_sprint", foreign.id
@@ -82,11 +92,25 @@ async def test_cannot_target_the_sprint_itself():
 async def test_unfinished_tasks_move_to_a_sprint_of_the_same_project():
     sprint = _sprint()
     nxt = _sprint(project_id=sprint.project_id, status="planning")
-    done = SimpleNamespace(status="done", sprint_id=sprint.id)
-    todo = SimpleNamespace(status="todo", sprint_id=sprint.id)
+    done = _task(
+        "done", sprint.id, hours=3, updated_at=datetime(2026, 11, 5, tzinfo=UTC)
+    )
+    todo = _task("todo", sprint.id)
     summary = await sprint_manager.complete_sprint(
         _db_with(nxt, [done, todo]), sprint, "next_sprint", nxt.id
     )
     assert todo.sprint_id == nxt.id and done.sprint_id == sprint.id
     assert summary == {"done_count": 1, "incomplete_count": 1, "total_count": 2}
     assert sprint.status == "completed"
+    # the report keeps the moved task even though it left the sprint
+    assert sprint.completion_snapshot == {
+        "tasks": [
+            {
+                "id": str(done.id),
+                "hours": 3,
+                "done": True,
+                "done_at": "2026-11-05T00:00:00+00:00",
+            },
+            {"id": str(todo.id), "hours": 1.0, "done": False, "done_at": None},
+        ]
+    }

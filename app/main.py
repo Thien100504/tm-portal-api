@@ -76,7 +76,7 @@ app = FastAPI(
         "Smart task management API with AI integration, "
         "automation and real-time progress tracking."
     ),
-    version="1.0.0",
+    version=settings.APP_VERSION,
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -119,7 +119,7 @@ app.add_middleware(RequestIDMiddleware)
 @app.get("/", tags=["health"])
 async def health_check() -> dict[str, Any]:
     """System health check."""
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": settings.APP_VERSION}
 
 
 # ── Routers ──────────────────────────────────────────────────────────

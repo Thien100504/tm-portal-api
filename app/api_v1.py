@@ -7,7 +7,9 @@ main.py only needs to include this router.
 
 from fastapi import APIRouter
 
+from app.config import get_settings
 from app.modules.admin.router import router as admin_router
+from app.modules.ai.chat_router import router as ai_chat_router
 from app.modules.ai.router import router as ai_router
 from app.modules.auth.router import router as auth_router
 from app.modules.automation.router import router as automation_router
@@ -33,6 +35,7 @@ api_v1_router.include_router(project_router)  # /api/v1/projects/...
 api_v1_router.include_router(sprint_router)  # /api/v1/projects/{id}/sprints/...
 api_v1_router.include_router(task_router)  # /api/v1/tasks/...
 api_v1_router.include_router(ai_router)  # /api/v1/projects/{id}/ai-insights/
+api_v1_router.include_router(ai_chat_router)  # /api/v1/chat/sessions/...
 api_v1_router.include_router(automation_router)  # /api/v1/projects/{id}/automations/
 api_v1_router.include_router(notifications_router)  # /api/v1/notifications/
 api_v1_router.include_router(admin_router)  # /api/v1/admin/...
@@ -40,3 +43,9 @@ api_v1_router.include_router(workspace_router)  # /api/v1/workspaces/...
 api_v1_router.include_router(epic_router)  # /api/v1/epics/...
 api_v1_router.include_router(rbac_router)  # /api/v1/roles/...
 api_v1_router.include_router(search_router)  # /api/v1/search
+
+
+@api_v1_router.get("/version", tags=["health"])
+async def get_version() -> dict[str, str]:
+    """Version of the running API (public, shown in the UI's top bar)."""
+    return {"version": get_settings().APP_VERSION}

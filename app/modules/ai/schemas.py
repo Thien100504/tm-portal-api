@@ -143,6 +143,9 @@ class ChatMessageResponse(BaseModel):
 class ChatSessionResponse(BaseModel):
     id: uuid.UUID
     title: str | None = None
+    # empty project_id = a workspace-wide conversation
+    project_id: uuid.UUID | None = None
+    workspace_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -151,3 +154,30 @@ class ChatSessionResponse(BaseModel):
 
 class ChatSessionCreate(BaseModel):
     title: str | None = None
+
+
+class ChatSessionScopeCreate(BaseModel):
+    workspace_id: uuid.UUID
+    project_id: uuid.UUID | None = None
+    title: str | None = Field(None, max_length=255)
+
+
+class ChatSessionRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+
+class ChatActionDecision(BaseModel):
+    confirm: bool
+    lang: str = "vi"
+
+
+class ChatActionResult(BaseModel):
+    status: Literal["done", "cancelled"]
+    kind: str | None = None
+    count: int = 0
+    name: str | None = None
+
+
+class ChatStatusResponse(BaseModel):
+    # false: the server has no AI API key, so the assistant cannot answer
+    configured: bool

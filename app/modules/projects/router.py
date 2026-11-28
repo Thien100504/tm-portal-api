@@ -42,8 +42,10 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create a project (in a workspace the user belongs to, or their personal one)."""
-    if project_in.workspace_id and not await project_manager.is_workspace_member(
+    """Create a project in a workspace the user belongs to."""
+    if not project_in.workspace_id:
+        raise HTTPException(status_code=422, detail="project.workspace_required")
+    if not await project_manager.is_workspace_member(
         db, project_in.workspace_id, current_user.id
     ):
         raise HTTPException(status_code=403, detail="project.workspace_forbidden")

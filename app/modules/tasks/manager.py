@@ -80,6 +80,52 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             raise HTTPException(status_code=status_code, detail=error)
         return other
 
+    async def _apply_parent_change(
+        self,
+        db: AsyncSession,
+        task: Task,
+        update_data: dict[str, Any],
+        new_deadline,
+    ) -> dict[str, Any]:
+        """
+        Validate moving a task under another one (or out of it with None).
+        An attached task follows its parent's sprint and epic unless the same
+        update sets them.
+        """
+        parent_id = update_data["parent_task_id"]
+        if parent_id is None:
+            return update_data
+        if parent_id == task.id:
+            raise HTTPException(status_code=400, detail="task.cannot_parent_itself")
+
+        parent = await self._get_live_task(
+            db, parent_id, task.project_id, "task.parent_not_found", status_code=404
+        )
+        if parent.parent_task_id:
+            raise HTTPException(status_code=400, detail="task.subtask_depth_limit")
+        if update_data.get("type", task.type) == "story":
+            raise HTTPException(status_code=400, detail="task.story_cannot_be_subtask")
+        has_children = await db.scalar(
+            select(Task.id)
+            .where(Task.parent_task_id == task.id, Task.is_deleted.is_(False))
+            .limit(1)
+        )
+        if has_children:
+            raise HTTPException(status_code=400, detail="task.has_subtasks")
+        if (
+            new_deadline
+            and parent.deadline
+            and _utc(new_deadline) > _utc(parent.deadline)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="task.error_subtask_deadline_later_than_parent",
+            )
+
+        update_data.setdefault("sprint_id", parent.sprint_id)
+        update_data.setdefault("epic_id", parent.epic_id)
+        return update_data
+
     async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID) -> Task | None:
         """
         Task details: loads subtasks, dependencies and dependent_tasks.
@@ -133,6 +179,9 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
     async def create_task(
         self, db: AsyncSession, obj_in: TaskCreate, creator_id: uuid.UUID
     ) -> Task:
+        if obj_in.type == "story" and obj_in.parent_task_id:
+            raise HTTPException(status_code=400, detail="task.story_cannot_be_subtask")
+
         max_pos_query = select(func.max(Task.position)).where(
             Task.project_id == obj_in.project_id,
             Task.status == obj_in.status,
@@ -151,6 +200,11 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
             )
             if parent_task.parent_task_id:
                 raise HTTPException(status_code=400, detail="task.subtask_depth_limit")
+            # a new subtask lands in its parent's epic and sprint unless told otherwise
+            if obj_in.epic_id is None:
+                obj_in.epic_id = parent_task.epic_id
+            if obj_in.sprint_id is None:
+                obj_in.sprint_id = parent_task.sprint_id
 
         from app.models.project import Project
 
@@ -198,13 +252,26 @@ class TaskManager(BaseManager[Task, TaskCreate, TaskUpdate]):
         # The new deadline if it is being updated
         new_deadline = None
         if isinstance(obj_in, dict):
-            new_deadline = obj_in.get("deadline", db_obj.deadline)
+            update_data = obj_in
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
-            new_deadline = update_data.get("deadline", db_obj.deadline)
+        new_deadline = update_data.get("deadline", db_obj.deadline)
+
+        parent_changes = "parent_task_id" in update_data
+        if update_data.get("type") == "story" and update_data.get(
+            "parent_task_id", db_obj.parent_task_id
+        ):
+            raise HTTPException(status_code=400, detail="task.story_cannot_be_subtask")
+
+        if parent_changes:
+            update_data = await self._apply_parent_change(
+                db, db_obj, dict(update_data), new_deadline
+            )
+            obj_in = update_data
 
         # 1. Rule: a subtask's deadline cannot be later than its parent's
-        if db_obj.parent_task_id and new_deadline:
+        # (a new parent is already checked in _apply_parent_change)
+        if db_obj.parent_task_id and new_deadline and not parent_changes:
             parent_task = await db.get(Task, db_obj.parent_task_id)
             if (
                 parent_task

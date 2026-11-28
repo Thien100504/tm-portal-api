@@ -86,6 +86,9 @@ class Task(UUIDMixin, TimestampMixin, SoftDeleteMixin, Base):
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    type: Mapped[str] = mapped_column(
+        String(20), default="task", server_default="task", nullable=False
+    )
     status: Mapped[str] = mapped_column(String, default="todo", nullable=False)
     priority: Mapped[str] = mapped_column(String, default="medium", nullable=False)
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(

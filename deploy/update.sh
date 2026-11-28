@@ -7,8 +7,8 @@ set -eu
 cd "$(dirname "$0")"
 COMPOSE="docker compose -f docker-compose.prod.yml"
 PROFILES=""
-# start the AI worker as well once an NVIDIA key is configured
-if grep -q '^NVIDIA_API_KEY=..*' .env; then PROFILES="--profile ai"; fi
+# start the AI worker as well once an AI key is configured
+if grep -qE '^(NVIDIA|OPENAI)_API_KEY=..*' .env; then PROFILES="--profile ai"; fi
 
 before=$($COMPOSE $PROFILES images -q 2>/dev/null | sort | tr '\n' ' ')
 $COMPOSE $PROFILES pull -q

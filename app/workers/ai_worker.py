@@ -17,7 +17,6 @@ from typing import Any
 
 import pika
 import redis.asyncio as redis
-from openai import OpenAI
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.spec import Basic, BasicProperties
 from sqlalchemy import func, select
@@ -25,9 +24,8 @@ from sqlalchemy import func, select
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.logging_config import correlation_id_var, setup_logging
-from app.models.project import Project
 from app.models.task import Task
-from app.models.workspace import Workspace
+from app.modules.ai import service as ai_service
 
 # Module-level event loop reference – assigned in main() before use
 _worker_loop: asyncio.AbstractEventLoop | None = None
@@ -41,10 +39,11 @@ settings = get_settings()
 from datetime import UTC
 
 from app.models.ai import AIMetric
+from app.modules.ai import llm
 
-client = OpenAI(base_url=settings.NVIDIA_BASE_URL, api_key=settings.NVIDIA_API_KEY)
+client = llm.sync_client()
 
-MODEL_NAME = "meta/llama-3.1-70b-instruct"
+MODEL_NAME = llm.task_model()
 
 
 async def _record_metric(
@@ -144,26 +143,15 @@ Example:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         top_p=0.8,
-        max_tokens=1024,
+        max_tokens=llm.max_tokens(),
     )
     elapsed_ms = int((_time.monotonic() - t0) * 1000)
-    content = response.choices[0].message.content.strip()
+    content = response.choices[0].message.content or ""
     usage = response.usage
-
-    # Qwen3 reasoning models emit <think>...</think> before the JSON; strip it
-    import re
-
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-
-    if content.startswith("```json"):
-        content = content[7:]
-        content = content[: content.rfind("```")].strip()
-    elif content.startswith("```"):
-        content = content[3:]
-        content = content[: content.rfind("```")].strip()
+    llm.warn_if_truncated(response.choices[0].finish_reason, "breakdown")
 
     try:
-        subtasks_data = json.loads(content.strip())
+        subtasks_data = llm.parse_json(content)
     except Exception as e:
         logger.error(f"Failed to parse LLM JSON: {content!r}")
         raise e
@@ -193,13 +181,9 @@ Example:
         parent_project_id = parent_task.project_id
         parent_sprint_id = parent_task.sprint_id
 
-        # Personal workspaces: AI subtasks are assigned to the workspace owner
-        auto_assignee_id = None
-        project = await db.get(Project, parent_project_id)
-        if project and project.workspace_id:
-            workspace = await db.get(Workspace, project.workspace_id)
-            if workspace and workspace.type == "personal":
-                auto_assignee_id = workspace.owner_id
+        auto_assignee_id = await ai_service.breakdown_assignee(
+            db, parent_task, actor_uuid
+        )
 
         # Replace only the subtasks an earlier AI breakdown created that are still
         # "todo"; subtasks written by people are kept
@@ -327,26 +311,15 @@ Example:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         top_p=0.8,
-        max_tokens=512,
+        max_tokens=llm.max_tokens(),
     )
     elapsed_ms = int((_time.monotonic() - t0) * 1000)
-    content = (response.choices[0].message.content or "").strip()
+    content = response.choices[0].message.content or ""
     usage = response.usage
-
-    # Strip <think>...</think> from Qwen3 reasoning models
-    import re
-
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-
-    if content.startswith("```json"):
-        content = content[7:]
-        content = content[: content.rfind("```")].strip()
-    elif content.startswith("```"):
-        content = content[3:]
-        content = content[: content.rfind("```")].strip()
+    llm.warn_if_truncated(response.choices[0].finish_reason, "estimate")
 
     try:
-        data = json.loads(content.strip())
+        data = llm.parse_json(content)
         story_points = int(data.get("story_points", 0))
     except Exception as e:
         logger.error(f"Failed to parse LLM JSON: {content!r}")
