@@ -17,7 +17,6 @@ from typing import Any
 
 import pika
 import redis.asyncio as redis
-from openai import OpenAI
 from pika.adapters.blocking_connection import BlockingChannel
 from pika.spec import Basic, BasicProperties
 from sqlalchemy import func, select
@@ -40,10 +39,11 @@ settings = get_settings()
 from datetime import UTC
 
 from app.models.ai import AIMetric
+from app.modules.ai import llm
 
-client = OpenAI(base_url=settings.NVIDIA_BASE_URL, api_key=settings.NVIDIA_API_KEY)
+client = llm.sync_client()
 
-MODEL_NAME = "meta/llama-3.1-70b-instruct"
+MODEL_NAME = llm.task_model()
 
 
 async def _record_metric(
@@ -143,26 +143,15 @@ Example:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         top_p=0.8,
-        max_tokens=1024,
+        max_tokens=llm.max_tokens(),
     )
     elapsed_ms = int((_time.monotonic() - t0) * 1000)
-    content = response.choices[0].message.content.strip()
+    content = response.choices[0].message.content or ""
     usage = response.usage
-
-    # Qwen3 reasoning models emit <think>...</think> before the JSON; strip it
-    import re
-
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-
-    if content.startswith("```json"):
-        content = content[7:]
-        content = content[: content.rfind("```")].strip()
-    elif content.startswith("```"):
-        content = content[3:]
-        content = content[: content.rfind("```")].strip()
+    llm.warn_if_truncated(response.choices[0].finish_reason, "breakdown")
 
     try:
-        subtasks_data = json.loads(content.strip())
+        subtasks_data = llm.parse_json(content)
     except Exception as e:
         logger.error(f"Failed to parse LLM JSON: {content!r}")
         raise e
@@ -322,26 +311,15 @@ Example:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         top_p=0.8,
-        max_tokens=512,
+        max_tokens=llm.max_tokens(),
     )
     elapsed_ms = int((_time.monotonic() - t0) * 1000)
-    content = (response.choices[0].message.content or "").strip()
+    content = response.choices[0].message.content or ""
     usage = response.usage
-
-    # Strip <think>...</think> from Qwen3 reasoning models
-    import re
-
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-
-    if content.startswith("```json"):
-        content = content[7:]
-        content = content[: content.rfind("```")].strip()
-    elif content.startswith("```"):
-        content = content[3:]
-        content = content[: content.rfind("```")].strip()
+    llm.warn_if_truncated(response.choices[0].finish_reason, "estimate")
 
     try:
-        data = json.loads(content.strip())
+        data = llm.parse_json(content)
         story_points = int(data.get("story_points", 0))
     except Exception as e:
         logger.error(f"Failed to parse LLM JSON: {content!r}")

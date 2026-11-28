@@ -7,7 +7,7 @@
 # Only the web container publishes a port (WEB_PORT, default 8080). It serves
 # the UI and proxies /api and /ws to the api container. Postgres, Redis and
 # RabbitMQ stay on the internal network.
-# The AI worker needs NVIDIA_API_KEY and is started with: --profile ai
+# The AI worker needs NVIDIA_API_KEY or OPENAI_API_KEY and is started with: --profile ai
 
 name: taskmanager
 
@@ -20,6 +20,11 @@ x-app-env: &app-env
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
   NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+  OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-gpt-4o-mini}
+  AI_CHAT_MODEL: ${AI_CHAT_MODEL:-}
+  AI_TASK_MODEL: ${AI_TASK_MODEL:-}
+  AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
   NOTIFICATION_SERVICE_URL: http://notify:8002
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
   CORS_ORIGINS: ${CORS_ORIGINS:-[]}
