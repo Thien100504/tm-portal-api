@@ -7,6 +7,7 @@ main.py only needs to include this router.
 
 from fastapi import APIRouter
 
+from app.config import get_settings
 from app.modules.admin.router import router as admin_router
 from app.modules.ai.router import router as ai_router
 from app.modules.auth.router import router as auth_router
@@ -40,3 +41,9 @@ api_v1_router.include_router(workspace_router)  # /api/v1/workspaces/...
 api_v1_router.include_router(epic_router)  # /api/v1/epics/...
 api_v1_router.include_router(rbac_router)  # /api/v1/roles/...
 api_v1_router.include_router(search_router)  # /api/v1/search
+
+
+@api_v1_router.get("/version", tags=["health"])
+async def get_version() -> dict[str, str]:
+    """Version of the running API (public, shown in the UI's top bar)."""
+    return {"version": get_settings().APP_VERSION}
