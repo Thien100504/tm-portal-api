@@ -1256,8 +1256,8 @@ def test_tasks_add_dependency():
                 new=AsyncMock(return_value=task),
             ),
             patch(
-                "app.modules.tasks.router.get_project_access",
-                new=AsyncMock(return_value=proj),
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
             ),
             patch(
                 "app.modules.tasks.manager.task_manager.add_dependency",
@@ -1291,8 +1291,8 @@ def test_tasks_remove_dependency():
                 new=AsyncMock(return_value=task),
             ),
             patch(
-                "app.modules.tasks.router.get_project_access",
-                new=AsyncMock(return_value=proj),
+                "app.modules.tasks.router.require_project_permission",
+                new=MagicMock(return_value=AsyncMock(return_value=proj)),
             ),
             patch(
                 "app.modules.tasks.manager.task_manager.remove_dependency",

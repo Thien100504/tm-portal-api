@@ -121,7 +121,9 @@ async def test_assign_requires_access_to_the_project():
     with (
         patch.object(task_manager, "get_by_id", new=AsyncMock(return_value=_task())),
         patch.object(
-            tasks_router, "get_project_access", new=AsyncMock(side_effect=FORBIDDEN)
+            tasks_router,
+            "require_project_permission",
+            new=MagicMock(return_value=AsyncMock(side_effect=FORBIDDEN)),
         ),
     ):
         with pytest.raises(HTTPException) as exc:
@@ -152,10 +154,10 @@ async def test_deleting_someone_elses_task_needs_the_permission():
 
 
 @pytest.mark.asyncio
-async def test_members_cannot_override_rules_by_dragging():
+@pytest.mark.parametrize("is_pm", [False, True])
+async def test_only_project_managers_override_rules_by_dragging(is_pm):
     task = _task()
     me = _user()
-    member = SimpleNamespace(project_role="member")
     db = MagicMock()
     db.flush = AsyncMock()
     db.refresh = AsyncMock()
@@ -164,14 +166,14 @@ async def test_members_cannot_override_rules_by_dragging():
         patch.object(task_manager, "get_by_id", new=AsyncMock(return_value=task)),
         patch.object(
             tasks_router,
-            "get_project_access",
-            new=AsyncMock(return_value=SimpleNamespace(owner_id=uuid.uuid4())),
-        ),
+            "require_project_permission",
+            new=MagicMock(return_value=AsyncMock()),
+        ) as require,
         patch.object(
-            tasks_router.project_manager,
-            "get_member",
-            new=AsyncMock(return_value=member),
-        ),
+            tasks_router.rbac_manager,
+            "check_permission",
+            new=AsyncMock(return_value=is_pm),
+        ) as check,
         patch.object(
             task_manager, "update_position", new=AsyncMock(return_value=task)
         ) as move,
@@ -180,7 +182,9 @@ async def test_members_cannot_override_rules_by_dragging():
         await tasks_router.update_task_position(
             task.id, schemas.TaskPositionUpdate(status="done"), MagicMock(), db, me
         )
-    assert move.await_args.kwargs["override"] is False
+    require.assert_called_once_with("task.update")
+    assert check.await_args.args[2] == "project.settings"
+    assert move.await_args.kwargs["override"] is is_pm
 
 
 # ── notifications ───────────────────────────────────────────────────────────

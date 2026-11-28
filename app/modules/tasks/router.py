@@ -15,7 +15,7 @@ from app.modules.projects.dependencies import (
     get_project_access,
     require_project_permission,
 )
-from app.modules.projects.manager import project_manager
+from app.modules.rbac.manager import rbac_manager
 from app.modules.tasks import schemas
 from app.modules.tasks.manager import task_manager
 from app.modules.workspaces.features import require_feature
@@ -47,7 +47,9 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    await get_project_access(task_in.project_id, db, current_user)
+    await require_project_permission("task.create")(
+        task_in.project_id, db, current_user
+    )
 
     task = await task_manager.create_task(
         db, obj_in=task_in, creator_id=current_user.id
@@ -147,7 +149,7 @@ async def update_task(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     old_priority = task.priority
     task = await task_manager.update(db, db_obj=task, obj_in=task_in)
@@ -259,11 +261,11 @@ async def update_task_status(
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
 
-    member = await project_manager.get_member(db, task.project_id, current_user.id)
-    if not member and current_user.system_role != "admin":
-        raise HTTPException(status_code=403, detail="auth.not_permitted")
-    is_pm = member and member.project_role == "project_manager"
-    if status_in.override and not is_pm and current_user.system_role != "admin":
+    await require_project_permission("task.update")(task.project_id, db, current_user)
+    # Forcing a status past blockers is a Project Manager decision
+    if status_in.override and not await rbac_manager.check_permission(
+        db, current_user.id, "project.settings", project_id=task.project_id
+    ):
         raise HTTPException(status_code=403, detail="auth.only_pm_override")
 
     old_status = task.status
@@ -349,12 +351,10 @@ async def update_task_position(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    project = await get_project_access(task.project_id, db, current_user)
-    member = await project_manager.get_member(db, task.project_id, current_user.id)
-    can_override = (
-        current_user.system_role == "admin"
-        or project.owner_id == current_user.id
-        or bool(member and member.project_role == "project_manager")
+    await require_project_permission("task.update")(task.project_id, db, current_user)
+    # Same rule as PUT /status: only Project Managers move tasks past blockers
+    can_override = await rbac_manager.check_permission(
+        db, current_user.id, "project.settings", project_id=task.project_id
     )
 
     task = await task_manager.update_position(
@@ -390,7 +390,7 @@ async def assign_task(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     if assign_in.assignee_id:
         task = await task_manager.assign_task(db, task, assign_in.assignee_id)
@@ -505,7 +505,7 @@ async def add_dependency(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     dep = await task_manager.add_dependency(
         db, task=task, depends_on_id=dep_in.depends_on_id
@@ -533,7 +533,7 @@ async def remove_dependency(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     await task_manager.remove_dependency(db, task=task, depends_on_id=depends_on_id)
     await db.flush()
@@ -563,7 +563,7 @@ async def request_ai_breakdown(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     background_tasks.add_task(
         _publish_rabbitmq,
@@ -593,7 +593,7 @@ async def request_ai_estimate(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     background_tasks.add_task(
         _publish_rabbitmq,
@@ -656,7 +656,7 @@ async def apply_cascade_deadline(
     task = await task_manager.get_by_id(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task.not_found")
-    await get_project_access(task.project_id, db, current_user)
+    await require_project_permission("task.update")(task.project_id, db, current_user)
 
     count = await task_manager.cascade_deadlines(db, task_id, request.delta_days)
     if count > 0:
